@@ -1,7 +1,7 @@
 import React, { CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from './header';
-import { PhoneMockups } from '../../components/PhoneMockups';
+import { PhoneMockups } from '../../components/phonemockups';
 import {
   Ticket,
   MapPin,
