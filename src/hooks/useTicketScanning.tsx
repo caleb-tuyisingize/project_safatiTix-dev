@@ -13,6 +13,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '../components/AuthContext';
+import { SOCKET_ORIGIN, socketOptions } from '../utils/network';
 
 interface ScanEvent {
   ticketId: string;
@@ -47,9 +48,9 @@ export function useAdminTicketScans(companyId?: string) {
     if (!accessToken || !companyId) return;
 
     // Connect to Socket.IO server
-    const socket = io(import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com', {
+    const socket = io(SOCKET_ORIGIN, {
+      ...socketOptions,
       auth: { token: accessToken },
-      transports: ['websocket', 'polling'],
     });
 
     socketRef.current = socket;
@@ -99,9 +100,9 @@ export function useCommuterTicketUpdates() {
     if (!accessToken || !user) return;
 
     // Connect to Socket.IO server
-    const socket = io(import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com', {
+    const socket = io(SOCKET_ORIGIN, {
+      ...socketOptions,
       auth: { token: accessToken },
-      transports: ['websocket', 'polling'],
     });
 
     socketRef.current = socket;
@@ -233,7 +234,8 @@ export function LiveTrackingWithScans({ scheduleId }: { scheduleId: string }) {
   useEffect(() => {
     if (!accessToken || !scheduleId) return;
 
-    const socket = io(import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com', {
+    const socket = io(SOCKET_ORIGIN, {
+      ...socketOptions,
       auth: { token: accessToken },
     });
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { GoogleMap, MarkerF, PolylineF, useJsApiLoader } from '@react-google-maps/api';
 import { AlertCircle, Bus, Loader2, MapPin, RefreshCw } from 'lucide-react';
+import { socketOptions, SOCKET_ORIGIN } from '../utils/network';
 
 interface PassengerTrackingProps {
   scheduleId: string;
@@ -28,8 +29,6 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const hasGoogleMapsKey = typeof GOOGLE_MAPS_API_KEY === 'string' && GOOGLE_MAPS_API_KEY.trim().length > 0;
 const DEFAULT_CENTER: google.maps.LatLngLiteral = { lat: -1.9441, lng: 30.0619 };
 const DEFAULT_TRIP_DURATION_MINUTES = 90;
-const PRODUCTION_SOCKET_URL = import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com';
-
 const KNOWN_LOCATIONS: Record<string, google.maps.LatLngLiteral> = {
   'kigali nyabugogo': { lat: -1.9423, lng: 30.0445 },
   nyabugogo: { lat: -1.9423, lng: 30.0445 },
@@ -204,9 +203,8 @@ const PassengerTracking: React.FC<PassengerTrackingProps> = ({
         throw new Error('Authentication required');
       }
 
-      const socketBaseUrl = import.meta.env.DEV ? window.location.origin : PRODUCTION_SOCKET_URL;
-      const socket = io(socketBaseUrl, {
-        path: '/socket.io',
+      const socket = io(SOCKET_ORIGIN, {
+        ...socketOptions,
         auth: { token: accessToken },
       });
 

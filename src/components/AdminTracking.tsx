@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import L from 'leaflet';
 import { MapPin, Loader2, AlertCircle, CheckCircle, XCircle, Bus, Shield } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
+import { SOCKET_ORIGIN, socketOptions } from '../utils/network';
 
 // Fix for default marker icons in React-Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -97,7 +98,7 @@ const AdminTracking: React.FC<AdminTrackingProps> = ({
 
         // Fetch initial location from API
         const response = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL}/api/tracking/schedule/${scheduleId}/location`,
+          `/api/tracking/schedule/${scheduleId}/location`,
           {
             headers: { Authorization: `Bearer ${accessToken}` }
           }
@@ -121,7 +122,8 @@ const AdminTracking: React.FC<AdminTrackingProps> = ({
         }
 
         // Initialize Socket.IO connection
-        const socket = io(import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com', {
+        const socket = io(SOCKET_ORIGIN, {
+          ...socketOptions,
           auth: { token: accessToken },
         });
 
@@ -383,3 +385,4 @@ const AdminTracking: React.FC<AdminTrackingProps> = ({
 };
 
 export default AdminTracking;
+

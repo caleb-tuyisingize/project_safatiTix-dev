@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import L from 'leaflet';
 import { MapPin, Loader2, AlertCircle, Bus, Navigation, Activity, Clock, User, MapPinned } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
+import { SOCKET_ORIGIN, socketOptions } from '../utils/network';
 
 // Fix for default marker icons in React-Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -214,11 +215,9 @@ export default function CompanyFleetTracking({ token, activeBuses }: CompanyFlee
   useEffect(() => {
     if (!token) return;
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com';
-
-    const socket = io(baseUrl, {
+    const socket = io(SOCKET_ORIGIN, {
+      ...socketOptions,
       auth: { token },
-      transports: ['websocket', 'polling'],
     });
 
     socketRef.current = socket;

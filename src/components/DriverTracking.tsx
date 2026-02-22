@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { GoogleMap, MarkerF, PolylineF, useJsApiLoader } from '@react-google-maps/api';
 import { AlertCircle, CheckCircle, Loader2, MapPin, Navigation, XCircle } from 'lucide-react';
+import { apiUrl, socketOptions, SOCKET_ORIGIN } from '../utils/network';
 
 interface DriverTrackingProps {
   scheduleId: string;
@@ -24,8 +25,6 @@ type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const hasGoogleMapsKey = typeof GOOGLE_MAPS_API_KEY === 'string' && GOOGLE_MAPS_API_KEY.trim().length > 0;
 const DEFAULT_CENTER: google.maps.LatLngLiteral = { lat: -1.9441, lng: 30.0619 };
-const PRODUCTION_API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com';
-
 const DriverTracking: React.FC<DriverTrackingProps> = ({
   scheduleId,
   initialStatus = 'scheduled',
@@ -99,7 +98,7 @@ const DriverTracking: React.FC<DriverTrackingProps> = ({
         throw new Error('Authentication required');
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/start-trip`, {
+      const response = await fetch(apiUrl('/api/driver/start-trip'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -146,7 +145,7 @@ const DriverTracking: React.FC<DriverTrackingProps> = ({
         throw new Error('Authentication required');
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/end-trip`, {
+      const response = await fetch(apiUrl('/api/driver/end-trip'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -178,7 +177,8 @@ const DriverTracking: React.FC<DriverTrackingProps> = ({
   };
 
   const initializeSocket = (accessToken: string) => {
-    const socket = io(import.meta.env.VITE_API_BASE_URL || 'https://backend-7cxc.onrender.com', {
+    const socket = io(SOCKET_ORIGIN, {
+      ...socketOptions,
       auth: { token: accessToken },
     });
 

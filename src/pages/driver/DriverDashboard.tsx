@@ -64,10 +64,10 @@ export default function DriverDashboard() {
     const fetchData = async () => {
       try {
         const [meRes, schedRes, ctxRes, compRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/me`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/today-schedule`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/context`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/company`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`/api/driver/me`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`/api/driver/today-schedule`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`/api/driver/context`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`/api/company`, { headers: { Authorization: `Bearer ${accessToken}` } }),
         ]);
 
         if (meRes.ok) {
@@ -100,7 +100,7 @@ export default function DriverDashboard() {
       setTripsLoading(true);
       setTripsError(null);
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/my-trips`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(`/api/driver/my-trips`, { headers: { Authorization: `Bearer ${accessToken}` } });
         if (!mounted) return;
         if (!res.ok) {
           const txt = await res.text().catch(() => null);
@@ -127,7 +127,7 @@ export default function DriverDashboard() {
     // Load dashboard aggregates (stats, upcoming trips, recent check-ins)
     const loadDashboard = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/dashboard`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(`/api/driver/dashboard`, { headers: { Authorization: `Bearer ${accessToken}` } });
         if (!res.ok) return;
         const j = await res.json();
         if (!mounted) return;
@@ -926,7 +926,7 @@ function ScannerModal({
 
     try {
       console.log('📡 Calling backend to validate ticket...');
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/driver/scan`, {
+      const response = await fetch(`/api/driver/scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
