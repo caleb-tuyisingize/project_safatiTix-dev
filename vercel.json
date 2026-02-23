@@ -7,6 +7,10 @@
     {
       "source": "/socket.io/(.*)",
       "destination": "https://backend-7cxc.onrender.com/socket.io/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
