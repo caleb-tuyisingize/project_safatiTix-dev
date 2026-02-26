@@ -31,7 +31,7 @@ export function Login() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://backend-7cxc.onrender.com/api/auth/login', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -68,7 +68,7 @@ export default function SignupPage() {
       console.log("Signup payload:", payload);
 
       const response = await fetch(
-        "https://backend-7cxc.onrender.com/api/auth/register",
+        "/api/auth/register",
         {
           method: "POST",
           headers: {
