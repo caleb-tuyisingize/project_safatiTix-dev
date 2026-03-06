@@ -5,6 +5,7 @@ import SuccessPopup from '../../components/SuccessPopup';
 import RevenueReports from './RevenueReports';
 import TicketsManagement from './TicketsManagement';
 import CompanyFleetTracking from '../../components/CompanyFleetTracking';
+import CompanySharedRoutesSection from '../../components/CompanySharedRoutesSection';
 import {
   LayoutDashboard,
   Bus,
@@ -98,13 +99,14 @@ export default function CompanyDashboard() {
 
   const displayName = storedUser ? (storedUser.full_name || storedUser.name || storedUser.fullName || storedUser.email) : 'Admin User';
   const displayRole = storedUser
-    ? (storedUser.role === 'company_admin' ? 'Company Admin' : (storedUser.role || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+    ? (storedUser.role === 'company_admin' ? 'Company Admin' : (storedUser.role || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))
     : 'Company Admin';
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'buses', label: 'Buses', icon: Bus },
     { id: 'drivers', label: 'Drivers', icon: Users },
+    { id: 'shared', label: 'Shared Routes', icon: Navigation },
     { id: 'schedules', label: 'Schedules', icon: Calendar },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
     { id: 'revenue', label: 'Revenue & Reports', icon: TrendingUp },
@@ -135,7 +137,7 @@ export default function CompanyDashboard() {
   React.useEffect(() => {
     let mounted = true;
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
 
     async function loadActiveBuses() {
       try {
@@ -202,7 +204,7 @@ export default function CompanyDashboard() {
 
   React.useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
 
     async function fetchKpis() {
       try {
@@ -231,7 +233,7 @@ export default function CompanyDashboard() {
 
         // Count unique routes from schedules
         const routeSet = new Set();
-        schedules.forEach(s => routeSet.add(`${s.routeFrom || ''}::${s.routeTo || ''}`));
+        schedules.forEach((s: any) => routeSet.add(`${s.routeFrom || ''}::${s.routeTo || ''}`));
         const activeRoutes = routeSet.size;
 
         const activeDrivers = drivers.length;
@@ -242,7 +244,7 @@ export default function CompanyDashboard() {
 
         let todaysRevenue = 0;
         let todaysTickets = 0;
-        schedules.forEach(s => {
+        schedules.forEach((s: any) => {
           // Check if schedule is for today
           const scheduleDate = s.scheduleDate || s.date || s.schedule_date;
           if (scheduleDate && scheduleDate.startsWith(todayStr)) {
@@ -261,7 +263,7 @@ export default function CompanyDashboard() {
 
         // Calculate bus status data
         const statusCounts = { active: 0, maintenance: 0, inactive: 0 };
-        buses.forEach(b => {
+        buses.forEach((b: any) => {
           const status = String(b.status || '').toLowerCase();
           if (status === 'active') statusCounts.active++;
           else if (status.includes('maintenance') || status === 'maintenance') statusCounts.maintenance++;
@@ -303,7 +305,7 @@ export default function CompanyDashboard() {
           monthlyRevenue.set(key, { revenue: 0, tickets: 0 });
         }
 
-        schedules.forEach(s => {
+        schedules.forEach((s: any) => {
           const scheduleDate = s.scheduleDate || s.date || s.schedule_date;
           if (scheduleDate) {
             const monthKey = scheduleDate.slice(0, 7); // YYYY-MM
@@ -470,6 +472,7 @@ export default function CompanyDashboard() {
           {activeSection === 'dashboard' && <DashboardOverview kpis={kpis} activeBusesList={activeBusesList} revenueData={revenueData} busStatusData={busStatusData} recentTickets={recentTickets} />}
           {activeSection === 'buses' && <BusesSection />}
           {activeSection === 'drivers' && <DriversSection />}
+          {activeSection === 'shared' && <CompanySharedRoutesSection />}
           {activeSection === 'schedules' && <SchedulesSection />}
           {activeSection === 'tickets' && <TicketsManagement />}
           {activeSection === 'revenue' && <RevenueReports />}
@@ -737,7 +740,10 @@ function DashboardOverview({ kpis, activeBusesList, revenueData, busStatusData, 
 }
 
 // KPI Card Component
-function KPICard({ title, value, change, trend, icon: Icon, color, subtitle }) {
+function KPICard({ title, value, change, trend, icon: Icon, color, subtitle }: {
+  title: string; value: string | number; change: string; trend: 'up' | 'down';
+  icon: React.ElementType; color: string; subtitle?: string;
+}) {
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between mb-4">
@@ -771,7 +777,7 @@ function BusesSection() {
 
   React.useEffect(() => {
     let mounted = true;
-    const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
     async function load() {
       try {
         const [busesRes, driversRes] = await Promise.all([
@@ -873,7 +879,7 @@ function DriversSection() {
 
   React.useEffect(() => {
     let mounted = true;
-    const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
     async function load() {
       try {
         const res = await fetch('/api/company/drivers', { headers });
@@ -952,7 +958,7 @@ function DriversSection() {
                     <button onClick={async () => {
                       if (!confirm('Delete this driver? This cannot be undone.')) return;
                       try {
-                        const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+                        const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
                         const res = await fetch(`/api/company/drivers/${d.id}`, { method: 'DELETE', headers });
                         if (!res.ok) {
                           const txt = await res.text().catch(() => null);
@@ -960,8 +966,8 @@ function DriversSection() {
                         }
                         // refresh list
                         window.location.reload();
-                      } catch (err) {
-                        alert('Failed to delete driver: ' + (err && err.message ? err.message : err));
+                      } catch (err: any) {
+                        alert('Failed to delete driver: ' + (err?.message ?? String(err)));
                       }
                     }} className="px-2 py-1 bg-red-100 text-red-700 rounded">Delete</button>
                   </td>
@@ -1025,7 +1031,7 @@ function SchedulesSection() {
 
   React.useEffect(() => {
     let mounted = true;
-    const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
 
     async function load() {
       try {
@@ -1305,7 +1311,6 @@ function AddScheduleModal({ onClose, token, buses }: { onClose: () => void; toke
   const [date, setDate] = React.useState('');
   const [departureTime, setDepartureTime] = React.useState('');
   const [arrivalTime, setArrivalTime] = React.useState('');
-  const [price, setPrice] = React.useState('0');
   const [busId, setBusId] = React.useState<string | null>(null);
   const [error, setError] = React.useState('');
   const [saving, setSaving] = React.useState(false);
@@ -1313,13 +1318,13 @@ function AddScheduleModal({ onClose, token, buses }: { onClose: () => void; toke
   const submit = async (e: any) => {
     e.preventDefault();
     setError('');
-    if (!busId || !routeFrom || !routeTo || !date || !departureTime || !price) { setError('Bus, route, date, departure time and price are required'); return; }
+    if (!busId || !routeFrom || !routeTo || !date || !departureTime) { setError('Bus, route, date and departure time are required'); return; }
     setSaving(true);
     try {
       const res = await fetch('/api/company/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ busId, routeFrom, routeTo, departureTime, arrivalTime, price: parseFloat(price || '0'), date })
+        body: JSON.stringify({ busId, routeFrom, routeTo, departureTime, arrivalTime, date })
       });
       if (!res.ok) {
         const text = await res.text().catch(() => null);
@@ -1338,7 +1343,10 @@ function AddScheduleModal({ onClose, token, buses }: { onClose: () => void; toke
       <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
       <div className="relative bg-white rounded-2xl p-6 w-[640px] shadow-lg">
         <div className="flex items-start justify-between mb-4">
-          <h3 className="text-lg font-semibold">Create Schedule</h3>
+          <div>
+            <h3 className="text-lg font-semibold">Create Schedule</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Price is automatically set from RURA regulated tariffs</p>
+          </div>
           <button onClick={onClose} className="text-gray-500">Close</button>
         </div>
         {error && <div className="text-red-600 mb-2">{error}</div>}
@@ -1363,10 +1371,6 @@ function AddScheduleModal({ onClose, token, buses }: { onClose: () => void; toke
             <div>
               <label className="block text-sm mb-1">Arrival Time</label>
               <input value={arrivalTime} onChange={e => setArrivalTime(e.target.value)} type="time" className="w-full border rounded px-3 py-2" />
-            </div>
-            <div>
-              <label className="block text-sm mb-1">Price (RWF)</label>
-              <input value={price} onChange={e => setPrice(e.target.value)} type="number" className="w-full border rounded px-3 py-2" />
             </div>
             <div className="col-span-2">
               <label className="block text-sm mb-1">Bus</label>

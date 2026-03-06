@@ -13,6 +13,7 @@ import SignupPage from './pages/SignupPage';
 import ScheduleDetails from './pages/ScheduleDetails';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import DriverDashboard from './pages/driver/DriverDashboard';
+import DriverScannerPage from './pages/driver/DriverScannerPage';
 import PublicLayout from './layouts/PublicLayout';
 import AdminLayout from './layouts/AdminLayout';
 import CompanyLayout from './layouts/CompanyLayout';
@@ -72,6 +73,7 @@ const App = () => {
 
               <Route path='driver' element={<RequireRole allowed={["driver"]}><DriverLayout/></RequireRole>}>
                 <Route index element={<DriverDashboard/>} />
+                <Route path='scanner' element={<DriverScannerPage/>} />
               </Route>
 
               <Route path='*' element={<NotFound />} />

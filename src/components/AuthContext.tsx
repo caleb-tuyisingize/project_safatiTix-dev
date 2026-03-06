@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-type User = { id?: string; name?: string; companyId?: string; companyName?: string; role?: string; homePath?: string } | null;
+type User = { id?: string; name?: string; email?: string; companyId?: string; companyName?: string; role?: string; homePath?: string } | null;
 
 interface AuthContextValue {
   user: User;

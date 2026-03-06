@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   LayoutDashboard, Users, Building2, Bus, Ticket, MapPin, Settings,
   Bell, Search, ChevronDown, Menu, X, Plus, Edit2, Trash2, Eye,
@@ -6,6 +6,7 @@ import {
   Clock, Calendar, Navigation, Phone, Mail, Shield, BarChart3,
   PieChart, Activity, ArrowUp, ArrowDown, MoreVertical, RefreshCw,
   UserCheck, UserX, Package, CreditCard, Zap, Crown, Star, Loader2,
+  RotateCcw, ShieldCheck, AlertTriangle, CheckCircle2, Info, FileText, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart as RechartsPie, Pie, Cell,
@@ -13,7 +14,6 @@ import {
 } from 'recharts';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // ==================== BRAND COLORS ====================
@@ -26,6 +26,61 @@ const COLORS = {
   darkGray: '#2B2D42',
   lightGray: '#F5F7FA',
   white: '#FFFFFF',
+};
+
+// ==================== RURA ROUTES TYPES & CONSTANTS ====================
+type RouteStatus = 'active' | 'inactive';
+type SortField = 'from_location' | 'to_location' | 'price' | 'effective_date' | 'status';
+type SortDir = 'asc' | 'desc';
+type ModalMode = 'add' | 'edit' | 'view' | 'delete' | null;
+
+interface RuraRoute {
+  id: number;
+  from_location: string;
+  to_location: string;
+  price: number;
+  effective_date: string;
+  source_document: string;
+  status: RouteStatus;
+}
+
+interface RuraFormState {
+  from_location: string;
+  to_location: string;
+  price: string;
+  effective_date: string;
+  source_document: string;
+  status: RouteStatus;
+}
+
+const LOCATIONS = [
+  'Kigali','Huye','Musanze','Rubavu','Rusizi','Nyanza','Rwamagana',
+  'Kayonza','Kirehe','Bugesera','Nyagatare','Gatsibo','Ngoma',
+  'Karongi','Rutsiro','Ngororero','Muhanga','Ruhango','Gicumbi',
+  'Gakenke','Rulindo','Burera',
+];
+
+const BLANK_RURA_FORM: RuraFormState = {
+  from_location: '',
+  to_location: '',
+  price: '',
+  effective_date: '',
+  source_document: '',
+  status: 'active',
+};
+
+const RURA_PAGE_SIZE = 8;
+
+const fmtCurrency = (v: number) =>
+  new Intl.NumberFormat('rw-RW', { style: 'currency', currency: 'RWF', maximumFractionDigits: 0 }).format(v);
+
+const fmtDate = (d: string) => {
+  if (!d) return '—';
+  // Strip time portion if present (handles both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ss.sssZ")
+  const datePart = d.slice(0, 10);
+  const dt = new Date(datePart + 'T00:00:00');
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 // ==================== MAIN COMPONENT ====================
@@ -208,6 +263,7 @@ export default function AdminDashboard() {
     { id: 'users', icon: Users, label: 'User Management', badge: users.length > 0 ? users.length.toLocaleString() : null },
     { id: 'companies', icon: Building2, label: 'Companies', badge: companies.length > 0 ? companies.length.toString() : null },
     { id: 'buses', icon: Bus, label: 'Buses & Routes', badge: buses.length > 0 ? buses.length.toString() : null },
+    { id: 'rura-routes', icon: Navigation, label: 'RURA Routes', badge: null },
     { id: 'tickets', icon: Ticket, label: 'Tickets', badge: dashboardStats.ticketsToday > 0 ? dashboardStats.ticketsToday.toString() : null },
     { id: 'tracking', icon: MapPin, label: 'Live Tracking', badge: null },
     { id: 'analytics', icon: BarChart3, label: 'Analytics', badge: null },
@@ -356,6 +412,7 @@ export default function AdminDashboard() {
           {activeModule === 'users' && <UserManagement users={users} tickets={recentTickets} />}
           {activeModule === 'companies' && <CompanyManagement companies={companies} />}
           {activeModule === 'buses' && <BusManagement buses={buses} />}
+          {activeModule === 'rura-routes' && <RuraRoutesManagement />}
           {activeModule === 'tickets' && <TicketManagement tickets={recentTickets} />}
           {activeModule === 'tracking' && <LiveTracking />}
           {activeModule === 'analytics' && (
@@ -2604,3 +2661,859 @@ function SettingsView() {
     </div>
   );
 }
+
+// ==================== RURA ROUTES MANAGEMENT ====================
+function RuraRoutesManagement() {
+  const [saving, setSaving] = useState(false);
+
+  // ── DB-driven data ────────────────────────────────────────────────────────
+  const [routes,        setRoutes]        = useState<RuraRoute[]>([]);
+  const [loading,       setLoading]       = useState(false);
+  const [totalPages,    setTotalPages]    = useState(1);
+  const [pageTotal,     setPageTotal]     = useState(0);   // filtered total count
+  const [activeCount,   setActiveCount]   = useState(0);
+  const [inactiveCount, setInactiveCount] = useState(0);
+  const [totalCount,    setTotalCount]    = useState(0);
+  const [fromLocations, setFromLocations] = useState<string[]>([]);
+  const [toLocations,   setToLocations]   = useState<string[]>([]);
+
+  // ── applied filters (last sent to API) ────────────────────────────────────
+  const [appliedSearch,  setAppliedSearch]  = useState('');
+  const [appliedFrom,    setAppliedFrom]    = useState('');
+  const [appliedTo,      setAppliedTo]      = useState('');
+  const [appliedStatus,  setAppliedStatus]  = useState<'all' | RouteStatus>('all');
+  const [appliedDate,    setAppliedDate]    = useState('');
+  const [filtersApplied, setFiltersApplied] = useState(false);
+
+  // ── pending (form values before Apply) ────────────────────────────────────
+  const [pendingSearch,  setPendingSearch]  = useState('');
+  const [pendingFrom,    setPendingFrom]    = useState('');
+  const [pendingTo,      setPendingTo]      = useState('');
+  const [pendingStatus,  setPendingStatus]  = useState<'all' | RouteStatus>('all');
+  const [pendingDate,    setPendingDate]    = useState('');
+
+  // ── sorting ───────────────────────────────────────────────────────────────
+  const [sortField, setSortField] = useState<SortField>('from_location');
+  const [sortDir,   setSortDir]   = useState<SortDir>('asc');
+
+  // ── pagination ────────────────────────────────────────────────────────────
+  const [page, setPage] = useState(1);
+
+  // ── notifications ─────────────────────────────────────────────────────────
+  const [ruraToast, setRuraToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const showRuraToast = (type: 'success' | 'error', text: string) => {
+    setRuraToast({ type, text });
+    setTimeout(() => setRuraToast(null), 3500);
+  };
+
+  // ── modal ─────────────────────────────────────────────────────────────────
+  const [modal,       setModal]       = useState<ModalMode>(null);
+  const [activeRoute, setActiveRoute] = useState<RuraRoute | null>(null);
+  const [form,        setForm]        = useState<RuraFormState>(BLANK_RURA_FORM);
+  const [formErrors,  setFormErrors]  = useState<Partial<Record<keyof RuraFormState, string>>>({});
+
+  // ── fetch helpers ──────────────────────────────────────────────────────────
+
+  const fetchStats = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await axios.get(`${API_BASE_URL}/rura_routes/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data.success) {
+        setTotalCount(res.data.total    ?? 0);
+        setActiveCount(res.data.active  ?? 0);
+        setInactiveCount(res.data.inactive ?? 0);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const fetchLocations = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await axios.get(`${API_BASE_URL}/rura_routes/locations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data.success) {
+        setFromLocations(res.data.fromLocations || []);
+        setToLocations(res.data.toLocations   || []);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const fetchRoutes = useCallback(async (opts: {
+    search?: string;
+    from_location?: string;
+    to_location?: string;
+    status?: 'all' | RouteStatus;
+    effective_date?: string;
+    page?: number;
+    sf?: SortField;
+    sd?: SortDir;
+  } = {}) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setLoading(true);
+    try {
+      const params: Record<string, string | number> = {
+        limit:      RURA_PAGE_SIZE,
+        page:       opts.page ?? 1,
+        sort_by:    opts.sf   ?? 'from_location',
+        sort_order: opts.sd   ?? 'asc',
+      };
+      if (opts.search?.trim())         params.search         = opts.search.trim();
+      if (opts.from_location?.trim())  params.from_location  = opts.from_location.trim();
+      if (opts.to_location?.trim())    params.to_location    = opts.to_location.trim();
+      if (opts.status && opts.status !== 'all') params.status = opts.status;
+      if (opts.effective_date?.trim()) params.effective_date = opts.effective_date.trim();
+
+      const res = await axios.get(`${API_BASE_URL}/rura_routes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params,
+      });
+      setRoutes(res.data.data                     || []);
+      setTotalPages(res.data.pagination?.totalPages ?? 1);
+      setPageTotal(res.data.pagination?.total      ?? 0);
+    } catch (err: any) {
+      showRuraToast('error', err.response?.data?.message || 'Failed to load routes from server.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchLocations();
+    fetchStats();
+    fetchRoutes({ sf: 'from_location', sd: 'asc', page: 1 });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── filter actions ─────────────────────────────────────────────────────────
+
+  const applyFilters = () => {
+    setAppliedSearch(pendingSearch);
+    setAppliedFrom(pendingFrom);
+    setAppliedTo(pendingTo);
+    setAppliedStatus(pendingStatus);
+    setAppliedDate(pendingDate);
+    const hasFilters = !!(pendingSearch || pendingFrom || pendingTo || pendingDate || pendingStatus !== 'all');
+    setFiltersApplied(hasFilters);
+    setPage(1);
+    fetchRoutes({
+      search: pendingSearch, from_location: pendingFrom, to_location: pendingTo,
+      status: pendingStatus, effective_date: pendingDate,
+      page: 1, sf: sortField, sd: sortDir,
+    });
+  };
+
+  const clearFilters = () => {
+    setPendingSearch(''); setPendingFrom(''); setPendingTo(''); setPendingStatus('all'); setPendingDate('');
+    setAppliedSearch(''); setAppliedFrom(''); setAppliedTo(''); setAppliedStatus('all'); setAppliedDate('');
+    setFiltersApplied(false);
+    setPage(1);
+    fetchRoutes({ sf: sortField, sd: sortDir, page: 1 });
+  };
+
+  const removeFilter = (key: 'search' | 'from' | 'to' | 'status' | 'date') => {
+    const s  = key === 'search' ? '' : appliedSearch;
+    const fr = key === 'from'   ? '' : appliedFrom;
+    const to = key === 'to'     ? '' : appliedTo;
+    const st = (key === 'status' ? 'all' : appliedStatus) as 'all' | RouteStatus;
+    const dt = key === 'date'   ? '' : appliedDate;
+    if (key === 'search') { setAppliedSearch('');   setPendingSearch(''); }
+    if (key === 'from')   { setAppliedFrom('');     setPendingFrom(''); }
+    if (key === 'to')     { setAppliedTo('');       setPendingTo(''); }
+    if (key === 'status') { setAppliedStatus('all');setPendingStatus('all'); }
+    if (key === 'date')   { setAppliedDate('');     setPendingDate(''); }
+    const hasFilters = !!(s || fr || to || dt || st !== 'all');
+    setFiltersApplied(hasFilters);
+    setPage(1);
+    fetchRoutes({ search: s, from_location: fr, to_location: to, status: st, effective_date: dt, page: 1, sf: sortField, sd: sortDir });
+  };
+
+  // ── sort / pagination ────────────────────────────────────────────────────
+
+  const handleSort = (field: SortField) => {
+    const newDir: SortDir = sortField === field ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
+    setSortField(field); setSortDir(newDir); setPage(1);
+    fetchRoutes({ search: appliedSearch, from_location: appliedFrom, to_location: appliedTo,
+                  status: appliedStatus, effective_date: appliedDate, page: 1, sf: field, sd: newDir });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    fetchRoutes({ search: appliedSearch, from_location: appliedFrom, to_location: appliedTo,
+                  status: appliedStatus, effective_date: appliedDate, page: newPage, sf: sortField, sd: sortDir });
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) =>
+    sortField !== field ? null :
+    sortDir === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 text-[#0077B6]" /> : <ArrowDown className="w-3 h-3 ml-1 text-[#0077B6]" />;
+
+  // ── modal helpers ─────────────────────────────────────────────────────────
+
+  const openAdd = () => { setForm(BLANK_RURA_FORM); setFormErrors({}); setActiveRoute(null); setModal('add'); };
+  const openEdit = (r: RuraRoute) => {
+    setForm({ from_location: r.from_location, to_location: r.to_location, price: String(r.price),
+              effective_date: r.effective_date, source_document: r.source_document, status: r.status });
+    setFormErrors({}); setActiveRoute(r); setModal('edit');
+  };
+  const openView   = (r: RuraRoute) => { setActiveRoute(r); setModal('view'); };
+  const openDelete = (r: RuraRoute) => { setActiveRoute(r); setModal('delete'); };
+  const closeModal = () => { setModal(null); setActiveRoute(null); setForm(BLANK_RURA_FORM); setFormErrors({}); };
+
+  // ── validation ────────────────────────────────────────────────────────────
+
+  const validate = (): boolean => {
+    const errs: Partial<Record<keyof RuraFormState, string>> = {};
+    if (!form.from_location.trim()) errs.from_location   = 'Required';
+    if (!form.to_location.trim())   errs.to_location     = 'Required';
+    if (form.from_location.trim().toLowerCase() === form.to_location.trim().toLowerCase())
+      errs.to_location = 'Must differ from origin';
+    if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0)
+      errs.price = 'Must be a positive number';
+    if (!form.effective_date)         errs.effective_date  = 'Required';
+    if (!form.source_document.trim()) errs.source_document = 'Required';
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // ── save (add / edit) ─────────────────────────────────────────────────────
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+    setSaving(true);
+    const token = localStorage.getItem('token');
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      if (modal === 'add') {
+        await axios.post(`${API_BASE_URL}/rura_routes`, {
+          from_location: form.from_location.trim(), to_location: form.to_location.trim(),
+          price: Number(form.price), effective_date: form.effective_date,
+          source_document: form.source_document.trim(), status: form.status,
+        }, { headers });
+        showRuraToast('success', `Route ${form.from_location} → ${form.to_location} created successfully.`);
+      } else if (modal === 'edit' && activeRoute) {
+        await axios.put(`${API_BASE_URL}/rura_routes/${activeRoute.id}`, {
+          price: Number(form.price), effective_date: form.effective_date, status: form.status,
+        }, { headers });
+        showRuraToast('success', 'Route updated successfully.');
+      }
+      closeModal();
+      setPage(1);
+      await Promise.all([
+        fetchRoutes({ search: appliedSearch, from_location: appliedFrom, to_location: appliedTo,
+                      status: appliedStatus, effective_date: appliedDate, page: 1, sf: sortField, sd: sortDir }),
+        fetchStats(), fetchLocations(),
+      ]);
+    } catch (err: any) {
+      showRuraToast('error', err.response?.data?.message || (modal === 'add' ? 'Failed to create route.' : 'Failed to update route.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── delete ────────────────────────────────────────────────────────────────
+
+  const handleDelete = async () => {
+    if (!activeRoute) return;
+    const token = localStorage.getItem('token');
+    try {
+      await axios.delete(`${API_BASE_URL}/rura_routes/${activeRoute.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      showRuraToast('success', `Route ${activeRoute.from_location} → ${activeRoute.to_location} deleted.`);
+      const newPage = routes.length === 1 && page > 1 ? page - 1 : page;
+      closeModal();
+      setPage(newPage);
+      await Promise.all([
+        fetchRoutes({ search: appliedSearch, from_location: appliedFrom, to_location: appliedTo,
+                      status: appliedStatus, effective_date: appliedDate, page: newPage, sf: sortField, sd: sortDir }),
+        fetchStats(), fetchLocations(),
+      ]);
+    } catch (err: any) {
+      showRuraToast('error', err.response?.data?.message || 'Failed to delete route.');
+      closeModal();
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-[#F5F7FA] p-4 md:p-6">
+
+      {/* Toast */}
+      {ruraToast && (
+        <div className={`fixed top-5 right-5 z-[9999] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border
+          ${ruraToast.type === 'success' ? 'bg-white border-green-200 text-green-800' : 'bg-white border-red-200 text-red-800'}`}
+        >
+          {ruraToast.type === 'success'
+            ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+            : <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />}
+          <span className="font-semibold text-sm">{ruraToast.text}</span>
+          <button onClick={() => setRuraToast(null)} className="ml-2 opacity-60 hover:opacity-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="max-w-7xl mx-auto space-y-5">
+
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-7">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Admin User
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                  <Crown className="w-3.5 h-3.5" /> Super Admin
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                  <MapPin className="w-3.5 h-3.5" /> RURA Regulated
+                </span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-black text-[#2B2D42] tracking-tight">
+                RURA Routes Management
+              </h1>
+              <p className="text-gray-500 mt-1 text-sm md:text-base">
+                Manage regulated route segments and pricing
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className="flex items-center gap-3">
+                <div className="text-center px-4 py-2 bg-green-50 rounded-xl border border-green-100">
+                  <p className="text-lg font-black text-green-600">{activeCount}</p>
+                  <p className="text-xs text-gray-500 font-medium">Active</p>
+                </div>
+                <div className="text-center px-4 py-2 bg-gray-50 rounded-xl border border-gray-200">
+                  <p className="text-lg font-black text-gray-600">{inactiveCount}</p>
+                  <p className="text-xs text-gray-500 font-medium">Inactive</p>
+                </div>
+                <div className="text-center px-4 py-2 bg-blue-50 rounded-xl border border-blue-100">
+                  <p className="text-lg font-black text-[#0077B6]">{totalCount}</p>
+                  <p className="text-xs text-gray-500 font-medium">Total</p>
+                </div>
+              </div>
+              <button onClick={openAdd}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <Plus className="w-4 h-4" /> Add Route
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Filter className="w-4 h-4 text-[#0077B6]" />
+            <h2 className="font-bold text-gray-800 text-sm md:text-base">Filters & Search</h2>
+            {filtersApplied && (
+              <span className="px-2 py-0.5 bg-[#0077B6] text-white text-xs rounded-full font-bold">Active</span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+            {/* Search */}
+            <div className="relative sm:col-span-2 lg:col-span-1 xl:col-span-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input type="text" placeholder="Search routes or documents..."
+                value={pendingSearch} onChange={e => setPendingSearch(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyFilters()}
+                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all placeholder:text-gray-400" />
+            </div>
+            {/* From Location — populated from DB */}
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <select value={pendingFrom} onChange={e => setPendingFrom(e.target.value)}
+                className="w-full pl-9 pr-8 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all appearance-none bg-white text-gray-700">
+                <option value="">From Location</option>
+                {fromLocations.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            {/* To Location — populated from DB */}
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <select value={pendingTo} onChange={e => setPendingTo(e.target.value)}
+                className="w-full pl-9 pr-8 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all appearance-none bg-white text-gray-700">
+                <option value="">To Location</option>
+                {toLocations.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            {/* Status */}
+            <div className="relative">
+              <select value={pendingStatus} onChange={e => setPendingStatus(e.target.value as 'all' | RouteStatus)}
+                className="w-full px-4 pr-8 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all appearance-none bg-white text-gray-700">
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            {/* Date */}
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input type="date" value={pendingDate} onChange={e => setPendingDate(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all text-gray-700" />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={applyFilters}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#0077B6] text-white rounded-xl font-bold text-sm hover:bg-[#005F8E] hover:shadow-md transition-all">
+              <Filter className="w-4 h-4" /> Apply Filters
+            </button>
+            <button onClick={clearFilters}
+              className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 hover:border-gray-300 transition-all">
+              <RotateCcw className="w-4 h-4" /> Clear Filters
+            </button>
+            {filtersApplied && (
+              <div className="flex flex-wrap gap-2 ml-1">
+                {appliedSearch  && <RuraChip label={`Search: "${appliedSearch}"`}   onRemove={() => removeFilter('search')} />}
+                {appliedFrom    && <RuraChip label={`From: ${appliedFrom}`}          onRemove={() => removeFilter('from')} />}
+                {appliedTo      && <RuraChip label={`To: ${appliedTo}`}              onRemove={() => removeFilter('to')} />}
+                {appliedStatus !== 'all' && <RuraChip label={`Status: ${appliedStatus}`} onRemove={() => removeFilter('status')} />}
+                {appliedDate    && <RuraChip label={`Date: ${fmtDate(appliedDate)}`} onRemove={() => removeFilter('date')} />}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-semibold text-gray-900">{routes.length}</span> of{' '}
+              <span className="font-semibold text-gray-900">{pageTotal}</span> routes
+              {filtersApplied && <span className="text-[#0077B6] font-semibold"> (filtered)</span>}
+            </p>
+            <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[760px]">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  {([
+                    ['from_location', 'From Location'],
+                    ['to_location',   'To Location'],
+                    ['price',         'Price'],
+                    ['effective_date','Effective Date'],
+                  ] as [SortField, string][]).map(([field, label]) => (
+                    <th key={field} onClick={() => handleSort(field)}
+                      className="px-4 py-3 text-left text-xs font-extrabold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none transition-colors group">
+                      <div className="flex items-center">
+                        {label}<SortIcon field={field} />
+                        {sortField !== field && <ArrowUp className="w-3 h-3 ml-1 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-left text-xs font-extrabold text-gray-500 uppercase tracking-wider">
+                    Source Document
+                  </th>
+                  <th onClick={() => handleSort('status')}
+                    className="px-4 py-3 text-left text-xs font-extrabold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none transition-colors group">
+                    <div className="flex items-center">
+                      Status<SortIcon field="status" />
+                      {sortField !== 'status' && <ArrowUp className="w-3 h-3 ml-1 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-extrabold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="py-20 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-8 h-8 text-[#0077B6] animate-spin" />
+                        <p className="text-gray-500 font-medium">Loading routes from database…</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : routes.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-20 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                          <MapPin className="w-7 h-7 text-gray-400" />
+                        </div>
+                        <p className="text-gray-800 font-semibold text-base">No routes found</p>
+                        <p className="text-gray-400 text-sm">
+                          {filtersApplied ? 'No routes match your current filters. Try clearing them.' : 'Create your first route to get started.'}
+                        </p>
+                        {!filtersApplied && (
+                          <button onClick={openAdd}
+                            className="mt-2 flex items-center gap-2 px-5 py-2.5 bg-[#0077B6] text-white rounded-xl font-bold text-sm hover:bg-[#005F8E] transition-colors">
+                            <Plus className="w-4 h-4" /> Add First Route
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  routes.map(r => (
+                    <tr key={r.id} className="hover:bg-blue-50/30 transition-colors group">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-[#0077B6] shrink-0" />
+                          <span className="font-semibold text-gray-900">{r.from_location}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-[#F4A261] shrink-0" />
+                          <span className="font-semibold text-gray-900">{r.to_location}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <DollarSign className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                          <span className="font-bold text-green-600">{fmtCurrency(r.price)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="text-gray-600">{fmtDate(r.effective_date)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 max-w-[180px]">
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="text-gray-600 truncate block max-w-[150px]" title={r.source_document}>
+                            {r.source_document}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold
+                          ${r.status === 'active' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${r.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                          {r.status === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openView(r)} title="View details"
+                            className="p-2 rounded-lg text-gray-500 hover:bg-blue-100 hover:text-blue-700 transition-colors">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => openEdit(r)} title="Edit route"
+                            className="p-2 rounded-lg text-gray-500 hover:bg-amber-100 hover:text-amber-700 transition-colors">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => openDelete(r)} title="Delete route"
+                            className="p-2 rounded-lg text-gray-500 hover:bg-red-100 hover:text-red-600 transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {pageTotal > 0 && (
+            <div className="px-5 py-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-sm text-gray-500">
+                Showing <span className="font-semibold text-gray-800">{(page - 1) * RURA_PAGE_SIZE + 1}</span>–
+                <span className="font-semibold text-gray-800">{Math.min(page * RURA_PAGE_SIZE, pageTotal)}</span> of{' '}
+                <span className="font-semibold text-gray-800">{pageTotal}</span> routes
+                {' '}(Page {page} of {totalPages})
+              </p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handlePageChange(Math.max(1, page - 1))} disabled={page === 1}
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 hover:border-gray-300 transition-all">
+                  <ChevronLeft className="w-4 h-4" /> Previous
+                </button>
+                <div className="flex gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                    .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('...');
+                      acc.push(p); return acc;
+                    }, [])
+                    .map((p, i) => p === '...' ? (
+                      <span key={`e-${i}`} className="px-2 py-2 text-gray-400 text-sm">…</span>
+                    ) : (
+                      <button key={p} onClick={() => handlePageChange(p as number)}
+                        className={`w-9 h-9 rounded-xl text-sm font-bold transition-all
+                          ${page === p ? 'bg-[#0077B6] text-white shadow-md' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                        {p}
+                      </button>
+                    ))}
+                </div>
+                <button onClick={() => handlePageChange(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 hover:border-gray-300 transition-all">
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add / Edit Modal */}
+      {(modal === 'add' || modal === 'edit') && (
+        <RuraModalOverlay onClose={closeModal}>
+          <div className="flex items-center justify-between p-6 border-b border-gray-100">
+            <div>
+              <h2 className="text-xl font-black text-[#2B2D42]">
+                {modal === 'add' ? 'Add New Route' : 'Edit Route'}
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {modal === 'add' ? 'Fill in all fields to create a new RURA route.' : 'Update editable fields below.'}
+              </p>
+            </div>
+            <button onClick={closeModal} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+          <form onSubmit={handleSave} noValidate className="p-6 space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <RuraFormField label="From Location" required error={formErrors.from_location}>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="text" list="rura-locations-from" placeholder="e.g. Kigali" autoComplete="off"
+                    value={form.from_location} onChange={e => setForm(f => ({ ...f, from_location: e.target.value }))}
+                    disabled={modal === 'edit'} className={`${ruraFieldCls(!!formErrors.from_location, modal === 'edit')} pl-9`} />
+                  <datalist id="rura-locations-from">{LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
+                </div>
+              </RuraFormField>
+              <RuraFormField label="To Location" required error={formErrors.to_location}>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="text" list="rura-locations-to" placeholder="e.g. Huye" autoComplete="off"
+                    value={form.to_location} onChange={e => setForm(f => ({ ...f, to_location: e.target.value }))}
+                    disabled={modal === 'edit'} className={`${ruraFieldCls(!!formErrors.to_location, modal === 'edit')} pl-9`} />
+                  <datalist id="rura-locations-to">{LOCATIONS.map(l => <option key={l} value={l} />)}</datalist>
+                </div>
+              </RuraFormField>
+              <RuraFormField label="Price (RWF)" required error={formErrors.price}>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="number" min="1" step="1" placeholder="e.g. 3500" value={form.price}
+                    onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                    className={`${ruraFieldCls(!!formErrors.price)} pl-9`} />
+                </div>
+              </RuraFormField>
+              <RuraFormField label="Effective Date" required error={formErrors.effective_date}>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="date" value={form.effective_date}
+                    onChange={e => setForm(f => ({ ...f, effective_date: e.target.value }))}
+                    className={`${ruraFieldCls(!!formErrors.effective_date)} pl-9`} />
+                </div>
+              </RuraFormField>
+              <RuraFormField label="Source Document" required error={formErrors.source_document} className="md:col-span-2">
+                <div className="relative">
+                  <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="text" placeholder="e.g. RURA_Notice_2026.pdf" value={form.source_document}
+                    onChange={e => setForm(f => ({ ...f, source_document: e.target.value }))}
+                    disabled={modal === 'edit'} className={`${ruraFieldCls(!!formErrors.source_document, modal === 'edit')} pl-9`} />
+                </div>
+              </RuraFormField>
+              <RuraFormField label="Status" required>
+                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as RouteStatus }))}
+                  className={ruraFieldCls(false)}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </RuraFormField>
+            </div>
+            {modal === 'edit' && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  <strong>From / To Location</strong> and <strong>Source Document</strong> are locked after creation.
+                </p>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button type="button" onClick={closeModal}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving}
+                className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white rounded-xl font-bold text-sm shadow hover:shadow-md hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow">
+                {saving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> {modal === 'add' ? 'Creating…' : 'Saving…'}</>
+                ) : modal === 'add' ? (
+                  <><Plus className="w-4 h-4" /> Create Route</>
+                ) : (
+                  <><CheckCircle2 className="w-4 h-4" /> Save Changes</>
+                )}
+              </button>
+            </div>
+          </form>
+        </RuraModalOverlay>
+      )}
+
+      {/* View Modal */}
+      {modal === 'view' && activeRoute && (
+        <RuraModalOverlay onClose={closeModal} maxW="max-w-lg">
+          <div className="flex items-center justify-between p-6 border-b border-gray-100">
+            <h2 className="text-xl font-black text-[#2B2D42]">Route Details</h2>
+            <button onClick={closeModal} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+              <div className="flex-1 text-center">
+                <p className="text-xs text-gray-400 uppercase font-bold mb-1">From</p>
+                <p className="text-lg font-black text-[#2B2D42]">{activeRoute.from_location}</p>
+              </div>
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="w-2 h-2 rounded-full bg-[#0077B6]" />
+                <div className="w-12 h-0.5 bg-[#0077B6]" />
+                <div className="text-[10px] text-[#0077B6] font-bold">{fmtCurrency(activeRoute.price)}</div>
+                <div className="w-12 h-0.5 bg-[#0077B6]" />
+                <div className="w-2 h-2 rounded-full bg-[#F4A261]" />
+              </div>
+              <div className="flex-1 text-center">
+                <p className="text-xs text-gray-400 uppercase font-bold mb-1">To</p>
+                <p className="text-lg font-black text-[#2B2D42]">{activeRoute.to_location}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <RuraDetailItem icon={<DollarSign className="w-4 h-4" />} label="Price" value={fmtCurrency(activeRoute.price)} />
+              <RuraDetailItem icon={<Calendar className="w-4 h-4" />} label="Effective Date" value={fmtDate(activeRoute.effective_date)} />
+              <RuraDetailItem
+                icon={<span className={`w-2 h-2 rounded-full ${activeRoute.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />}
+                label="Status"
+                value={<span className={`font-bold ${activeRoute.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
+                  {activeRoute.status === 'active' ? 'Active' : 'Inactive'}
+                </span>}
+              />
+              <RuraDetailItem icon={<FileText className="w-4 h-4" />} label="ID" value={`#${activeRoute.id}`} />
+            </div>
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+              <p className="text-xs text-gray-500 font-semibold mb-1 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Source Document
+              </p>
+              <p className="text-sm text-gray-800 font-medium break-all">{activeRoute.source_document}</p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => { closeModal(); openEdit(activeRoute); }}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-amber-200 bg-amber-50 text-amber-700 rounded-xl font-bold text-sm hover:bg-amber-100 transition-colors">
+                <Edit2 className="w-4 h-4" /> Edit Route
+              </button>
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors">
+                Close
+              </button>
+            </div>
+          </div>
+        </RuraModalOverlay>
+      )}
+
+      {/* Delete Modal */}
+      {modal === 'delete' && activeRoute && (
+        <RuraModalOverlay onClose={closeModal} maxW="max-w-md">
+          <div className="p-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-7 h-7 text-red-500" />
+            </div>
+            <h2 className="text-xl font-black text-[#2B2D42] mb-2">Delete Route</h2>
+            <p className="text-gray-500 text-sm mb-1">Are you sure you want to permanently delete this route?</p>
+            <div className="my-4 p-3 bg-gray-50 rounded-xl border border-gray-200">
+              <p className="font-bold text-gray-800">{activeRoute.from_location} → {activeRoute.to_location}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{fmtCurrency(activeRoute.price)} · {fmtDate(activeRoute.effective_date)}</p>
+            </div>
+            <p className="text-xs text-red-500 mb-5">This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleDelete}
+                className="flex-1 py-2.5 bg-red-500 text-white rounded-xl font-bold text-sm hover:bg-red-600 hover:shadow-md transition-all"
+              >
+                Delete Route
+              </button>
+            </div>
+          </div>
+        </RuraModalOverlay>
+      )}
+
+    </div>
+  );
+}
+
+// ─── Rura Sub-components ──────────────────────────────────────────────────────
+
+function RuraModalOverlay({ children, onClose, maxW = 'max-w-2xl' }: {
+  children: React.ReactNode;
+  onClose: () => void;
+  maxW?: string;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90vh] overflow-y-auto`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function RuraFormField({ label, required, error, children, className = '' }: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+      {error && <p className="text-xs text-red-500 mt-1 font-medium">{error}</p>}
+    </div>
+  );
+}
+
+function RuraDetailItem({ icon, label, value }: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+      <div className="flex items-center gap-1.5 text-gray-400 mb-1">
+        {icon}
+        <p className="text-xs font-semibold uppercase">{label}</p>
+      </div>
+      <p className="text-sm font-bold text-gray-800">{value}</p>
+    </div>
+  );
+}
+
+function RuraChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0077B6]/10 border border-[#0077B6]/20 text-[#0077B6] rounded-full text-xs font-semibold">
+      {label}
+      <button onClick={onRemove} className="hover:text-red-500 transition-colors">
+        <X className="w-3 h-3" />
+      </button>
+    </span>
+  );
+}
+
+const ruraFieldCls = (hasError = false, disabled = false) =>
+  `w-full px-3.5 py-2.5 border rounded-xl text-sm outline-none transition-all
+  ${hasError
+    ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100 bg-red-50'
+    : 'border-gray-200 focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 bg-white'}
+  ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : ''}`;

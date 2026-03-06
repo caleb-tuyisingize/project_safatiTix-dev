@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import DriverTracking from '../../components/DriverTracking';
+import { useNavigate as _useNavigate } from 'react-router-dom';
 
 // ==================== SAMPLE DATA ====================
 const driverData = {
@@ -317,6 +318,7 @@ export default function DriverDashboard() {
 
 // ==================== DASHBOARD VIEW ====================
 function DashboardView({ setShowScanner, driverName, schedules, user, activeTrip, upcomingTrips, dashboardStats, recentPassengers, onStartTrip }: { setShowScanner: any, driverName: any, schedules: any[], user: any, activeTrip: any, upcomingTrips: any[], dashboardStats: any, recentPassengers: any[], onStartTrip?: (schedule: any) => void }) {
+  const navigate = _useNavigate();
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       
@@ -348,7 +350,7 @@ function DashboardView({ setShowScanner, driverName, schedules, user, activeTrip
           )}
         </div>
         <button 
-          onClick={() => setShowScanner(true)}
+          onClick={() => navigate('/dashboard/driver/scanner')}
           className="w-full lg:w-auto bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 flex items-center justify-center gap-2"
         >
           <Scan className="w-5 h-5" />
@@ -466,7 +468,7 @@ function DashboardView({ setShowScanner, driverName, schedules, user, activeTrip
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-lg font-black text-slate-900">Recent Check-ins</h3>
             <button 
-              onClick={() => setShowScanner(true)}
+              onClick={() => navigate('/dashboard/driver/scanner')}
               className="text-[#0077B6] font-bold text-sm hover:underline flex items-center gap-1"
             >
               Scan <QrCode className="w-4 h-4" />
@@ -633,13 +635,14 @@ function TripsView({ trips, loading, error, onStartTrip }: { trips?: any[], load
 // ==================== PASSENGERS VIEW ====================
 function PassengersView({ setShowScanner }: { setShowScanner: (show: boolean) => void }) {
   const [search, setSearch] = useState('');
+  const navigate = _useNavigate();
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl lg:text-3xl font-black text-slate-900">Passengers</h1>
         <button 
-          onClick={() => setShowScanner(true)}
+          onClick={() => navigate('/dashboard/driver/scanner')}
           className="bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
         >
           <Scan className="w-5 h-5" />
@@ -850,22 +853,15 @@ function ScannerModal({
 
     try {
       const videoInputDevices = await BrowserQRCodeReader.listVideoInputDevices();
-      
-      if (videoInputDevices.length === 0) {
-        setError('No camera found on this device');
-        setScanning(false);
-        return;
-      }
 
-      // Use the first camera (or back camera if available)
-      const backCamera = videoInputDevices.find((d) =>
-        /back|rear|environment/i.test(d.label || '')
-      );
-      const selectedDeviceId = backCamera?.deviceId || videoInputDevices[0]?.deviceId;
-      if (!selectedDeviceId) {
-        setError('Could not determine a camera device id');
-        setScanning(false);
-        return;
+      // Some browsers do not expose stable device IDs until permission is granted.
+      // In that case, pass undefined and let ZXing use the default/environment camera.
+      let selectedDeviceId: string | undefined;
+      if (videoInputDevices.length > 0) {
+        const backCamera = videoInputDevices.find((d) =>
+          /back|rear|environment/i.test(d.label || '')
+        );
+        selectedDeviceId = backCamera?.deviceId || videoInputDevices[0]?.deviceId || undefined;
       }
 
       if (readerRef.current && videoRef.current) {
