@@ -948,8 +948,8 @@ export default function CommuterDashboard() {
                 description="Dedicated commuter help channels and support windows."
               />
               <div className="mt-5 space-y-4 text-sm text-slate-600">
-                <ContactCard label="Email support" value="support@safaritix.com" />
-                <ContactCard label="Phone assistance" value="+250 700 000 000" />
+                <ContactCard label="Email support" value="safaritixrwanda@gmail.com" />
+                <ContactCard label="Phone assistance" value="+250 793 216 602" />
                 <ContactCard label="Support hours" value="Every day, 06:00 - 22:00 CAT" />
               </div>
             </div>
