@@ -1,1506 +1,1437 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Bus,
-  Ticket,
-  MapPin,
-  User,
-  Bell,
-  Search,
-  Calendar,
-  Clock,
-  ArrowRight,
-  QrCode,
-  Download,
-  Navigation,
-  HelpCircle,
-  LogOut,
-  Menu,
-  X,
-  ChevronRight,
-  Shield,
-  Award,
-  Smartphone,
-  CheckCircle,
-  TrendingUp,
-  Info,
   AlertCircle,
-  History,
-  Star,
-  ArrowRightLeft,
-  Sparkles,
-  Zap,
-  Share2,
-  Eye,
-  RefreshCw,
+  ArrowRight,
+  Bell,
+  BookOpen,
+  Bus,
+  Calendar,
+  CheckCircle,
+  Clock,
   CreditCard,
-  XCircle,
-  Timer,
+  Eye,
+  HelpCircle,
+  History,
+  LogOut,
+  MapPin,
+  Menu,
+  Navigation,
+  RefreshCw,
+  Search,
+  Share2,
+  Ticket,
+  User,
+  X,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../../components/AuthContext';
-import AccountSettings from '../account/AccountSettings';
 import NotificationBell from '../../components/NotificationBell';
+import PassengerTracking from '../../components/PassengerTracking';
+import AccountSettings from '../account/AccountSettings';
 
-// ========================================
-// COMMUTER DASHBOARD - REDESIGNED
-// Main Landing: Shared Trip Search (replaces Home)
-// ========================================
+type DashboardTab = 'shared' | 'bookings' | 'map' | 'history' | 'help' | 'profile';
+
+interface SearchTrip {
+  schedule_id: string;
+  bus_id?: string;
+  route_id?: string;
+  bus_plate?: string;
+  company_name?: string;
+  departure_date?: string | null;
+  departure_time?: string | null;
+  pickup_stop: string;
+  dropoff_stop: string;
+  from_location?: string | null;
+  to_location?: string | null;
+  available_seats?: number;
+  capacity?: number;
+  price?: number;
+}
+
+interface TicketRecord {
+  id: string;
+  scheduleId: string;
+  bookingRef: string;
+  status: string;
+  fromStop: string;
+  toStop: string;
+  scheduleDate: string | null;
+  departureTime: string | null;
+  seatNumber: string;
+  busPlate: string;
+  price: number | null;
+  createdAt: string | null;
+}
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt: string | null;
+  link: string | null;
+}
+
+const FALLBACK_STOPS = [
+  'Kigali',
+  'Nyabugogo',
+  'Huye',
+  'Musanze',
+  'Rubavu',
+  'Rusizi',
+  'Muhanga',
+  'Rwamagana',
+  'Kamonyi',
+  'Nyanza',
+];
+
+const statusTone: Record<string, string> = {
+  CONFIRMED: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+  IN_PROGRESS: 'border border-sky-200 bg-sky-50 text-sky-700',
+  COMPLETED: 'border border-slate-200 bg-slate-100 text-slate-700',
+  CANCELLED: 'border border-rose-200 bg-rose-50 text-rose-700',
+  SCHEDULED: 'border border-amber-200 bg-amber-50 text-amber-700',
+};
+
+const cardClassName = 'rounded-[30px] border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-[0_24px_80px_rgba(15,23,42,0.08)]';
+const mutedCardClassName = 'rounded-[24px] border border-slate-200/80 bg-slate-50/85';
+const fieldClassName = 'w-full rounded-[20px] border border-slate-200 bg-white px-4 py-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0077B6] focus:ring-4 focus:ring-[#0077B6]/10';
+const primaryButtonClassName = 'inline-flex items-center justify-center gap-2 rounded-full bg-[#0077B6] px-5 py-3.5 text-sm font-bold text-white shadow-[0_18px_36px_rgba(0,119,182,0.28)] transition hover:bg-[#005F8E] disabled:cursor-not-allowed disabled:opacity-60';
+const secondaryButtonClassName = 'inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50';
+
+const authHeaders = (accessToken?: string, includeJson = false): HeadersInit => {
+  const headers: Record<string, string> = {};
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  return headers;
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) return 'TBD';
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatShortDate = (value?: string | null) => {
+  if (!value) return 'TBD';
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const formatTime = (value?: string | null) => {
+  if (!value) return 'TBD';
+  return String(value).slice(0, 5);
+};
+
+const formatCurrency = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'RWF 0';
+  return `RWF ${Number(value).toLocaleString()}`;
+};
+
+const parseMaybeJson = async (response: Response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const normalizeTicket = (source: any): TicketRecord => ({
+  id: String(source?.id || source?.ticket_id || source?.booking_ref || ''),
+  scheduleId: String(source?.scheduleId || source?.schedule_id || ''),
+  bookingRef: String(source?.bookingRef || source?.booking_ref || source?.id || ''),
+  status: String(source?.status || 'CONFIRMED').toUpperCase(),
+  fromStop: String(source?.fromStop || source?.from_stop || source?.from || source?.from_location || 'N/A'),
+  toStop: String(source?.toStop || source?.to_stop || source?.to || source?.to_location || 'N/A'),
+  scheduleDate: source?.scheduleDate || source?.schedule_date || source?.date || null,
+  departureTime: source?.departureTime || source?.departure_time || source?.time || null,
+  seatNumber: String(source?.seatNumber || source?.seat_number || source?.seat || 'N/A'),
+  busPlate: String(source?.busPlate || source?.bus_plate || source?.plate_number || 'N/A'),
+  price: source?.price !== undefined && source?.price !== null ? Number(source.price) : null,
+  createdAt: source?.createdAt || source?.created_at || source?.booked_at || null,
+});
+
+const normalizeNotification = (source: any): NotificationItem => ({
+  id: String(source?.id || ''),
+  title: String(source?.title || 'Notification'),
+  message: String(source?.message || ''),
+  type: String(source?.type || 'system'),
+  isRead: Boolean(source?.is_read),
+  createdAt: source?.created_at || null,
+  link: source?.link || null,
+});
+
+const dedupeTickets = (tickets: TicketRecord[]) => {
+  const seen = new Set<string>();
+  return tickets.filter((ticket) => {
+    const key = ticket.id || `${ticket.scheduleId}:${ticket.seatNumber}:${ticket.bookingRef}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const startOfToday = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
+
+const isTrackableTicket = (ticket: TicketRecord) => {
+  if (!ticket.scheduleId) return false;
+  const status = ticket.status.toUpperCase();
+  if (status === 'CANCELLED' || status === 'COMPLETED') return false;
+
+  if (!ticket.scheduleDate) return true;
+  const travelDate = new Date(`${ticket.scheduleDate}T00:00:00`);
+  if (Number.isNaN(travelDate.getTime())) return true;
+  return travelDate.getTime() >= startOfToday().getTime();
+};
+
+const isHistoryTicket = (ticket: TicketRecord) => {
+  if (ticket.status === 'COMPLETED' || ticket.status === 'CANCELLED') return true;
+  if (!ticket.scheduleDate) return false;
+  const travelDate = new Date(`${ticket.scheduleDate}T00:00:00`);
+  if (Number.isNaN(travelDate.getTime())) return false;
+  return travelDate.getTime() < startOfToday().getTime();
+};
+
+const metricCard = (label: string, value: string, accent: string) => (
+  <div className="rounded-[24px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+    <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+      <span className="h-2 w-2 rounded-full bg-[#0077B6]" />
+      {label}
+    </div>
+    <div className={`mt-4 text-3xl font-black leading-none ${accent}`}>{value}</div>
+  </div>
+);
 
 export default function CommuterDashboard() {
   const { user, signOut, accessToken } = useAuth();
-  const [activeTab, setActiveTab] = useState('shared'); // Default to Shared Trips
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
-  // Search state
+
+  const [activeTab, setActiveTab] = useState<DashboardTab>('shared');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fromLocation, setFromLocation] = useState('');
   const [toLocation, setToLocation] = useState('');
   const [travelDate, setTravelDate] = useState('');
   const [passengers, setPassengers] = useState(1);
-  
-  // Data state
-  const [upcomingTrips, setUpcomingTrips] = useState<any[]>([]);
-  const [popularRoutes, setPopularRoutes] = useState<any[]>([]);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [availableStops, setAvailableStops] = useState<string[]>([]);
+  const [popularRoutes, setPopularRoutes] = useState<SearchTrip[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchTrip[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchPerformed, setSearchPerformed] = useState(false);
-  const [availableStops, setAvailableStops] = useState<string[]>([]);
-  const [selectedTrip, setSelectedTrip] = useState<any | null>(null);
-  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingLoadingId, setBookingLoadingId] = useState<string | null>(null);
   const [bookingError, setBookingError] = useState('');
   const [bookingSuccess, setBookingSuccess] = useState('');
-  const [myTickets, setMyTickets] = useState<any[]>([]);
-  const [myTicketsLoading, setMyTicketsLoading] = useState(false);
-  const [myTicketsError, setMyTicketsError] = useState('');
-  const [viewTicket, setViewTicket] = useState<any | null>(null); // full boarding-pass modal
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [tickets, setTickets] = useState<TicketRecord[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsError, setTicketsError] = useState('');
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState('');
+  const [selectedTrackingTicketId, setSelectedTrackingTicketId] = useState<string | null>(null);
+  const [viewTicket, setViewTicket] = useState<TicketRecord | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Static fallback cities shown while stops load from DB
-  const fallbackCities = ['Kigali', 'Huye', 'Musanze', 'Rubavu', 'Rusizi', 'Muhanga', 'Rwamagana', 'Kamonyi', 'Ruhango', 'Nyanza'];
-  const stopOptions = availableStops.length > 0 ? availableStops : fallbackCities;
+  const stopOptions = availableStops.length > 0 ? availableStops : FALLBACK_STOPS;
 
-  // Mock data - replace with actual API calls
+  const trackableTickets = useMemo(() => {
+    return tickets.filter(isTrackableTicket).sort((left, right) => {
+      const leftStamp = `${left.scheduleDate || ''} ${left.departureTime || ''}`;
+      const rightStamp = `${right.scheduleDate || ''} ${right.departureTime || ''}`;
+      return leftStamp.localeCompare(rightStamp);
+    });
+  }, [tickets]);
+
+  const historyTickets = useMemo(() => {
+    return tickets.filter(isHistoryTicket).sort((left, right) => {
+      return `${right.scheduleDate || ''} ${right.departureTime || ''}`.localeCompare(
+        `${left.scheduleDate || ''} ${left.departureTime || ''}`
+      );
+    });
+  }, [tickets]);
+
+  const selectedTrackingTicket = useMemo(() => {
+    return trackableTickets.find((ticket) => ticket.id === selectedTrackingTicketId) || trackableTickets[0] || null;
+  }, [selectedTrackingTicketId, trackableTickets]);
+
+  const unreadNotifications = useMemo(() => notifications.filter((notification) => !notification.isRead), [notifications]);
+  const totalSpent = useMemo(() => {
+    return tickets.reduce((sum, ticket) => sum + (ticket.price || 0), 0);
+  }, [tickets]);
+
   useEffect(() => {
-    // Fetch user's upcoming trips
-    const fetchUpcomingTrips = async () => {
-      try {
-        const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (accessToken) hdrs['Authorization'] = `Bearer ${accessToken}`;
-        const res = await fetch('/api/tickets', { headers: hdrs });
-        if (res.ok) {
-          const json = await res.json();
-          const tickets = Array.isArray(json.tickets) ? json.tickets : [];
-          const confirmed = tickets.filter((t: any) => t.status === 'CONFIRMED');
-          setUpcomingTrips(confirmed);
-        }
-      } catch (e) {
-        console.error('Failed to fetch tickets', e);
-      }
-    };
-
-    // Fetch popular routes
-    const fetchPopularRoutes = async () => {
-      try {
-        const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (accessToken) hdrs['Authorization'] = `Bearer ${accessToken}`;
-        const res = await fetch('/api/schedules', { headers: hdrs });
-        if (res.ok) {
-          const json = await res.json();
-          const schedules = Array.isArray(json.schedules) ? json.schedules : [];
-          const normalized = schedules.map((s: any, idx: number) => ({
-            id: s.id || s.schedule_id || idx,
-            from: s.from || s.routeFrom || s.from_location || s.route_from || s.origin || 'Unknown',
-            to: s.to || s.routeTo || s.to_location || s.route_to || s.destination || 'Unknown',
-            scheduleDate: s.date || s.schedule_date || s.departureDate || '',
-            departureTime: s.departureTime || s.departure_time || s.time || '',
-            duration: s.duration || '2-3h',
-            price: Number(s.price || s.price_per_seat || 0),
-            availableSeats: Number(s.availableSeats ?? s.available_seats ?? s.seatsAvailable ?? 0),
-          }));
-
-          normalized.sort((a: any, b: any) => {
-            const ad = `${a.scheduleDate || ''} ${a.departureTime || ''}`;
-            const bd = `${b.scheduleDate || ''} ${b.departureTime || ''}`;
-            return ad.localeCompare(bd);
-          });
-
-          // Show all available schedules to passengers
-          setPopularRoutes(normalized);
-        }
-      } catch (e) {
-        console.error('Failed to fetch schedules', e);
-      }
-    };
-
-    // Fetch available bus stops from the route_stops table
-    const fetchAvailableStops = async () => {
-      try {
-        const res = await fetch('/api/stops');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && Array.isArray(json.stops) && json.stops.length > 0) {
-            setAvailableStops(json.stops);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to fetch stops', e);
-      }
-    };
-
-    // Mock announcements
-    setAnnouncements([
-      { id: 1, type: 'info', title: 'Extended Service', message: 'Additional buses available during Easter weekend' },
-      { id: 2, type: 'warning', title: 'Route Update', message: 'Kigali-Huye route has temporary detour due to road work' },
-    ]);
-
-    fetchUpcomingTrips();
-    fetchPopularRoutes();
-    fetchAvailableStops();
-  }, [accessToken]);
-
-  // Load tickets whenever the bookings tab becomes active
-  useEffect(() => {
-    if (activeTab === 'bookings') {
-      fetchMyTickets();
+    if (!selectedTrackingTicketId && trackableTickets.length > 0) {
+      setSelectedTrackingTicketId(trackableTickets[0].id);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
 
-  const fetchMyTickets = async () => {
-    if (!accessToken) return;
-    setMyTicketsLoading(true);
-    setMyTicketsError('');
+    if (selectedTrackingTicketId && !trackableTickets.some((ticket) => ticket.id === selectedTrackingTicketId)) {
+      setSelectedTrackingTicketId(trackableTickets[0]?.id || null);
+    }
+  }, [selectedTrackingTicketId, trackableTickets]);
+
+  const loadStops = async () => {
     try {
-      const res = await fetch('/api/my-tickets', {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        setMyTickets(Array.isArray(json.tickets) ? json.tickets : []);
-      } else {
-        setMyTicketsError(json.message || 'Failed to load bookings.');
+      const response = await fetch('/api/stops');
+      const payload = await parseMaybeJson(response);
+      if (response.ok && payload?.success && Array.isArray(payload.stops) && payload.stops.length > 0) {
+        setAvailableStops(payload.stops.map((stop: unknown) => String(stop)));
       }
     } catch {
-      setMyTicketsError('Network error. Please check your connection.');
-    } finally {
-      setMyTicketsLoading(false);
+      // Keep fallback stops.
     }
   };
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    
+  const loadPopularRoutes = async () => {
+    try {
+      const response = await fetch('/api/schedules', { headers: authHeaders(accessToken) });
+      const payload = await parseMaybeJson(response);
+      const routes = Array.isArray(payload?.schedules) ? payload.schedules : [];
+      const normalized = routes.map((route: any) => ({
+        schedule_id: String(route.id || route.schedule_id || route.scheduleId || ''),
+        bus_id: route.bus_id || route.busId,
+        route_id: route.route_id || route.routeId,
+        bus_plate: route.bus_plate || route.busPlateNumber || route.plate_number || '',
+        company_name: route.company_name || route.companyName || '',
+        departure_date: route.date || route.schedule_date || route.tripDate || null,
+        departure_time: route.departure_time || route.departureTime || route.time || null,
+        pickup_stop: route.routeFrom || route.from_location || route.from || route.departureLocation || 'Unknown',
+        dropoff_stop: route.routeTo || route.to_location || route.to || route.destination || 'Unknown',
+        from_location: route.routeFrom || route.from_location || route.from || null,
+        to_location: route.routeTo || route.to_location || route.to || null,
+        available_seats: Number(route.available_seats ?? route.seatsAvailable ?? route.availableSeats ?? 0),
+        capacity: Number(route.capacity ?? route.totalSeats ?? route.seatCapacity ?? 0),
+        price: Number(route.price ?? 0),
+      }));
+      setPopularRoutes(normalized.slice(0, 6));
+    } catch {
+      setPopularRoutes([]);
+    }
+  };
+
+  const loadTickets = async () => {
+    if (!accessToken) {
+      setTickets([]);
+      return;
+    }
+
+    setTicketsLoading(true);
+    setTicketsError('');
+    try {
+      const [myTicketsResponse, ticketsResponse] = await Promise.all([
+        fetch('/api/my-tickets', { headers: authHeaders(accessToken) }),
+        fetch('/api/tickets', { headers: authHeaders(accessToken) }),
+      ]);
+
+      const [myTicketsPayload, ticketsPayload] = await Promise.all([
+        parseMaybeJson(myTicketsResponse),
+        parseMaybeJson(ticketsResponse),
+      ]);
+
+      const myTicketsList = Array.isArray(myTicketsPayload?.tickets) ? myTicketsPayload.tickets : [];
+      const ticketsList = Array.isArray(ticketsPayload?.tickets) ? ticketsPayload.tickets : [];
+      const normalized = dedupeTickets([...myTicketsList, ...ticketsList].map(normalizeTicket).filter((ticket) => Boolean(ticket.id)));
+      setTickets(normalized);
+
+      if (!myTicketsResponse.ok && !ticketsResponse.ok) {
+        setTicketsError((myTicketsPayload?.message || ticketsPayload?.message || 'Failed to load your tickets.'));
+      }
+    } catch {
+      setTicketsError('Network error while loading your commuter data.');
+    } finally {
+      setTicketsLoading(false);
+    }
+  };
+
+  const loadNotifications = async () => {
+    if (!accessToken) {
+      setNotifications([]);
+      return;
+    }
+
+    setNotificationsLoading(true);
+    setNotificationsError('');
+    try {
+      const response = await fetch('/api/notifications?limit=6', { headers: authHeaders(accessToken) });
+      const payload = await parseMaybeJson(response);
+      if (response.ok) {
+        setNotifications(Array.isArray(payload?.data) ? payload.data.map(normalizeNotification) : []);
+      } else {
+        setNotifications([]);
+        setNotificationsError(payload?.message || 'Failed to load notifications.');
+      }
+    } catch {
+      setNotifications([]);
+      setNotificationsError('Unable to load notifications right now.');
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const refreshDashboard = async () => {
+    setRefreshing(true);
+    await Promise.all([loadStops(), loadPopularRoutes(), loadTickets(), loadNotifications()]);
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    void refreshDashboard();
+  }, [accessToken]);
+
+  const handleSearch = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+
     if (!fromLocation || !toLocation) {
-      alert('Please select both departure and arrival cities');
+      setBookingError('Select both departure and destination to search trips.');
       return;
     }
 
     if (fromLocation === toLocation) {
-      alert('Departure and arrival cities must be different');
+      setBookingError('Departure and destination must be different.');
       return;
     }
 
+    setBookingError('');
+    setBookingSuccess('');
     setSearchPerformed(true);
     setSearchLoading(true);
-    setSearchResults([]);
-    setSelectedTrip(null);
 
     try {
-      const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) hdrs['Authorization'] = `Bearer ${accessToken}`;
+      let query = `?from=${encodeURIComponent(fromLocation)}&to=${encodeURIComponent(toLocation)}`;
+      if (travelDate) {
+        query += `&date=${encodeURIComponent(travelDate)}`;
+      }
 
-      let qs = `?from=${encodeURIComponent(fromLocation)}&to=${encodeURIComponent(toLocation)}`;
-      if (travelDate) qs += `&date=${encodeURIComponent(travelDate)}`;
-
-      const res = await fetch(`/api/search-trips${qs}`, { headers: hdrs });
-      if (res.ok) {
-        const json = await res.json();
-        setSearchResults(json.success ? (json.trips || []) : []);
+      const response = await fetch(`/api/search-trips${query}`, { headers: authHeaders(accessToken) });
+      const payload = await parseMaybeJson(response);
+      if (response.ok && payload?.success) {
+        setSearchResults(Array.isArray(payload.trips) ? payload.trips : []);
       } else {
         setSearchResults([]);
+        setBookingError(payload?.message || 'Failed to search trips.');
       }
-    } catch (err) {
-      console.error('Search error:', err);
+    } catch {
       setSearchResults([]);
+      setBookingError('Search failed. Please try again.');
     } finally {
       setSearchLoading(false);
     }
   };
 
-  const swapLocations = () => {
-    const temp = fromLocation;
-    setFromLocation(toLocation);
-    setToLocation(temp);
-  };
-
-  const handleBookSeat = async (trip: any, seatNumber?: number) => {
-    if (!user) {
-      alert('Please log in to book a seat.');
+  const handleBookSeat = async (trip: SearchTrip) => {
+    if (!accessToken) {
+      setBookingError('Your session expired. Please sign in again.');
       return;
     }
-    setBookingLoading(true);
+
     setBookingError('');
     setBookingSuccess('');
+    setBookingLoadingId(trip.schedule_id);
+
     try {
-      const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) hdrs['Authorization'] = `Bearer ${accessToken}`;
-      const body = {
-        schedule_id: trip.schedule_id,
-        from_stop: trip.pickup_stop,
-        to_stop: trip.dropoff_stop,
-        ...(seatNumber ? { seat_number: seatNumber } : {}),
-        passenger_name: user?.name || '',
-      };
-      const res = await fetch('/api/book-ticket', {
-        method: 'POST',
-        headers: hdrs,
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        setBookingSuccess(`Booking confirmed! Ticket ID: ${json.ticket?.id || json.ticket?.ticket_id || 'N/A'}`);
-        // Redirect to My Bookings tab after a short delay so user sees the confirmation
-        setTimeout(() => {
-          setSelectedTrip(null);
-          setActiveTab('bookings');
-        }, 1800);
-        // Refresh search results to reflect updated seat counts
-        handleSearch();
-      } else {
-        setBookingError(json.message || 'Booking failed. Please try again.');
+      const bookedTickets: TicketRecord[] = [];
+      for (let index = 0; index < passengers; index += 1) {
+        const response = await fetch('/api/book-ticket', {
+          method: 'POST',
+          headers: authHeaders(accessToken, true),
+          body: JSON.stringify({
+            schedule_id: trip.schedule_id,
+            from_stop: trip.pickup_stop,
+            to_stop: trip.dropoff_stop,
+            passenger_name: user?.name || undefined,
+          }),
+        });
+
+        const payload = await parseMaybeJson(response);
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.message || 'Booking failed.');
+        }
+
+        bookedTickets.push(normalizeTicket({
+          ...payload.ticket,
+          from_stop: trip.pickup_stop,
+          to_stop: trip.dropoff_stop,
+          schedule_id: trip.schedule_id,
+          schedule_date: trip.departure_date,
+          departure_time: trip.departure_time,
+          bus_plate: trip.bus_plate,
+          price: trip.price,
+        }));
       }
-    } catch (err) {
-      setBookingError('Network error. Please check your connection.');
+
+      setBookingSuccess(`Booked ${bookedTickets.length} ticket${bookedTickets.length > 1 ? 's' : ''} successfully.`);
+      await loadTickets();
+      setViewTicket(bookedTickets[bookedTickets.length - 1] || null);
+      setActiveTab('bookings');
+    } catch (error) {
+      setBookingError(error instanceof Error ? error.message : 'Booking failed.');
     } finally {
-      setBookingLoading(false);
+      setBookingLoadingId(null);
     }
   };
 
-  const parseDateLabel = (value?: string) => {
-    if (!value) return 'Available soon';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return 'Available soon';
-    const today = new Date();
-    const td = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const diff = Math.floor((dd.getTime() - td.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff === 0) return 'Available today';
-    if (diff === 1) return 'Available tomorrow';
-    return `Available ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  const openTracking = (ticket: TicketRecord) => {
+    setSelectedTrackingTicketId(ticket.id);
+    setActiveTab('map');
   };
 
-  const formatTime = (value?: string) => {
-    if (!value) return '--:--';
-    const raw = String(value).trim();
-    if (/^\d{1,2}:\d{2}/.test(raw)) return raw.slice(0, 5);
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return raw;
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const shareTicket = async (ticket: TicketRecord) => {
+    const text = [
+      'SafariTix ticket',
+      `${ticket.fromStop} -> ${ticket.toStop}`,
+      `Date: ${formatDate(ticket.scheduleDate)}`,
+      `Time: ${formatTime(ticket.departureTime)}`,
+      `Seat: ${ticket.seatNumber}`,
+      `Reference: ${ticket.bookingRef}`,
+    ].join('\n');
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'SafariTix ticket', text });
+        return;
+      } catch {
+        // Fall back to clipboard below.
+      }
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      setBookingSuccess('Ticket details copied to clipboard.');
+      return;
+    }
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  const normalizeTicketStatus = (status?: string) => {
-    const current = String(status || '').toUpperCase();
-    if (current === 'CHECKED_IN' || current === 'USED' || current === 'COMPLETED') return 'USED';
-    if (current === 'CANCELLED') return 'CANCELLED';
-    return 'CONFIRMED';
-  };
+  const navItems: Array<{ id: DashboardTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: 'shared', label: 'Book Trip', icon: Search },
+    { id: 'bookings', label: 'My Bookings', icon: Ticket },
+    { id: 'map', label: 'Track Bus', icon: Navigation },
+    { id: 'history', label: 'Trip History', icon: History },
+    { id: 'help', label: 'Help Center', icon: HelpCircle },
+    { id: 'profile', label: 'Profile', icon: User },
+  ];
 
-  const buildTicketQrPayload = (ticket: any) => ({
-    ticketId: ticket.booking_ref || ticket.id || 'N/A',
-    route: `${ticket.from_stop || ''}-${ticket.to_stop || ''}`,
-    date: String(ticket.schedule_date || '').slice(0, 10),
-    time: formatTime(ticket.departure_time || ticket.time || ''),
-    seat: Number(ticket.seat_number || 0),
-    bus: ticket.bus_plate || '',
-    price: Number(ticket.price || 0),
-    status: normalizeTicketStatus(ticket.status),
-  });
+  const renderSearchResults = () => {
+    if (searchLoading) {
+      return (
+        <EmptyPanel
+          icon={RefreshCw}
+          title="Searching available trips"
+          description="We are checking current shared routes, fares, and seat availability for your journey."
+          spinning={true}
+        />
+      );
+    }
 
-  // ========================================
-  // SHARED TRIP SEARCH PAGE (NEW MAIN LANDING)
-  // ========================================
-  const renderSharedTripSearch = () => (
-    <div className="space-y-8">
-      {/* Hero Search Section */}
-      <div className="relative bg-gradient-to-br from-[#0077B6] via-[#0088CC] to-[#00A8E8] rounded-3xl overflow-hidden shadow-2xl">
-        {/* Decorative background pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-white rounded-full -mr-48 -mt-48"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white rounded-full -ml-32 -mb-32"></div>
-        </div>
-        
-        <div className="relative z-10 p-6 lg:p-12">
-          {/* Welcome Message */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full mb-4">
-              <Sparkles className="w-4 h-4 text-white" />
-              <span className="text-sm font-bold text-white">Welcome to SafariTix</span>
+    if (!searchPerformed) {
+      return null;
+    }
+
+    if (searchResults.length === 0) {
+      return (
+        <EmptyPanel
+          icon={Bus}
+          title="No matching trips found"
+          description="Try another date or a different pickup and destination combination."
+        />
+      );
+    }
+
+    return (
+      <div className="grid gap-5 2xl:grid-cols-3 xl:grid-cols-2">
+        {searchResults.map((trip) => (
+          <div key={`${trip.schedule_id}-${trip.pickup_stop}-${trip.dropoff_stop}`} className={`${cardClassName} overflow-hidden p-6`}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-[#0077B6]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[#0077B6]">
+                  Available trip
+                </div>
+                <div className="mt-4">
+                  <RouteLine from={trip.pickup_stop} to={trip.dropoff_stop} prominent={true} />
+                </div>
+                <p className="mt-3 text-sm text-slate-500">{trip.company_name || 'SafariTix operator'}{trip.bus_plate ? ` · ${trip.bus_plate}` : ''}</p>
+              </div>
+              <div className="rounded-[22px] border border-[#0077B6]/15 bg-[#0077B6]/5 px-4 py-3 text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#0077B6]">Fare</div>
+                <div className="mt-1 text-xl font-black text-slate-900">{formatCurrency(trip.price)}</div>
+              </div>
             </div>
-            <h1 className="text-3xl lg:text-5xl font-black text-white mb-3">
-              Book Your Bus Journey
-            </h1>
-            <p className="text-base lg:text-lg text-white/90 max-w-2xl mx-auto">
-              Fast, safe, and reliable bus travel across Rwanda
-            </p>
-          </div>
 
-          {/* Search Card */}
-          <div className="bg-white rounded-2xl shadow-2xl p-4 lg:p-8 max-w-5xl mx-auto">
-            <form onSubmit={handleSearch}>
-              {/* Desktop Layout */}
-              <div className="hidden lg:grid lg:grid-cols-4 gap-4 mb-4">
-                {/* From Location */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    From
-                  </label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <select
-                      value={fromLocation}
-                      onChange={(e) => setFromLocation(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 outline-none transition-all text-gray-900 font-medium appearance-none bg-white cursor-pointer"
-                    >
-                      <option value="">Select city</option>
-                      {stopOptions.filter(c => c !== toLocation).map(city => (
-                        <option key={city} value={city}>{city}</option>
-                      ))}
-                    </select>
-                  </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className={mutedCardClassName + ' p-4'}>
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  <Calendar className="h-4 w-4" /> Departure
                 </div>
-
-                {/* Swap Button */}
-                <div className="flex items-end justify-center">
-                  <button
-                    type="button"
-                    onClick={swapLocations}
-                    className="w-12 h-12 rounded-xl bg-gray-100 hover:bg-[#0077B6] hover:text-white flex items-center justify-center transition-all duration-300 group"
-                    disabled={!fromLocation || !toLocation}
-                  >
-                    <ArrowRightLeft className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* To Location */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    To
-                  </label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <select
-                      value={toLocation}
-                      onChange={(e) => setToLocation(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 outline-none transition-all text-gray-900 font-medium appearance-none bg-white cursor-pointer"
-                    >
-                      <option value="">Select city</option>
-                      {stopOptions.filter(c => c !== fromLocation).map(city => (
-                        <option key={city} value={city}>{city}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Travel Date */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Travel Date
-                  </label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <input
-                      type="date"
-                      value={travelDate}
-                      onChange={(e) => setTravelDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="w-full pl-11 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 outline-none transition-all text-gray-900 font-medium"
-                    />
-                  </div>
-                </div>
+                <div className="mt-3 text-sm font-black text-slate-900">{formatShortDate(trip.departure_date)}</div>
               </div>
-
-              {/* Mobile Layout */}
-              <div className="lg:hidden space-y-3 mb-4">
-                {/* From Location */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">From</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <select
-                      value={fromLocation}
-                      onChange={(e) => setFromLocation(e.target.value)}
-                      className="w-full pl-11 pr-4 py-4 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] outline-none text-gray-900 font-medium appearance-none bg-white"
-                    >
-                      <option value="">Select departure city</option>
-                      {stopOptions.filter(c => c !== toLocation).map(city => (
-                        <option key={city} value={city}>{city}</option>
-                      ))}
-                    </select>
-                  </div>
+              <div className={mutedCardClassName + ' p-4'}>
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  <Clock className="h-4 w-4" /> Time
                 </div>
-
-                {/* Swap Button */}
-                <div className="flex justify-center">
-                  <button
-                    type="button"
-                    onClick={swapLocations}
-                    className="w-12 h-12 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
-                    disabled={!fromLocation || !toLocation}
-                  >
-                    <ArrowRightLeft className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-
-                {/* To Location */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">To</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <select
-                      value={toLocation}
-                      onChange={(e) => setToLocation(e.target.value)}
-                      className="w-full pl-11 pr-4 py-4 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] outline-none text-gray-900 font-medium appearance-none bg-white"
-                    >
-                      <option value="">Select arrival city</option>
-                      {stopOptions.filter(c => c !== fromLocation).map(city => (
-                        <option key={city} value={city}>{city}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Travel Date */}
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Travel Date</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-                    <input
-                      type="date"
-                      value={travelDate}
-                      onChange={(e) => setTravelDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="w-full pl-11 pr-4 py-4 rounded-xl border-2 border-gray-200 focus:border-[#0077B6] outline-none text-gray-900 font-medium"
-                    />
-                  </div>
-                </div>
+                <div className="mt-3 text-sm font-black text-slate-900">{formatTime(trip.departure_time)}</div>
               </div>
-
-              {/* Passengers Selector */}
-              <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-2">
-                  <User className="w-5 h-5 text-gray-600" />
-                  <span className="text-sm font-semibold text-gray-700">Passengers</span>
+              <div className={mutedCardClassName + ' p-4'}>
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  <CreditCard className="h-4 w-4" /> Seats left
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPassengers(Math.max(1, passengers - 1))}
-                    className="w-9 h-9 rounded-lg bg-white border-2 border-gray-200 hover:border-[#0077B6] flex items-center justify-center font-bold text-gray-700 transition-colors"
-                  >
-                    -
-                  </button>
-                  <span className="w-8 text-center font-bold text-gray-900 text-lg">{passengers}</span>
-                  <button
-                    type="button"
-                    onClick={() => setPassengers(Math.min(10, passengers + 1))}
-                    className="w-9 h-9 rounded-lg bg-white border-2 border-gray-200 hover:border-[#0077B6] flex items-center justify-center font-bold text-gray-700 transition-colors"
-                  >
-                    +
-                  </button>
-                </div>
+                <div className="mt-3 text-sm font-black text-slate-900">{trip.available_seats ?? 0} / {trip.capacity ?? 0}</div>
               </div>
+            </div>
 
-              {/* Search Button */}
+            <div className="mt-6 flex flex-col gap-4 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-slate-500">Booking will reserve {passengers} seat{passengers > 1 ? 's' : ''} for this segment.</p>
               <button
-                type="submit"
-                className="w-full bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white py-4 rounded-xl font-bold text-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300 flex items-center justify-center gap-2"
+                onClick={() => void handleBookSeat(trip)}
+                disabled={bookingLoadingId === trip.schedule_id}
+                className={primaryButtonClassName + ' min-w-[150px]'}
               >
-                <Search className="w-5 h-5" />
-                Search Trips
-                <ArrowRight className="w-5 h-5" />
+                {bookingLoadingId === trip.schedule_id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                {bookingLoadingId === trip.schedule_id ? 'Booking...' : 'Book now'}
               </button>
-            </form>
+            </div>
           </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderBookings = () => {
+    if (ticketsLoading) {
+      return (
+        <EmptyPanel
+          icon={RefreshCw}
+          title="Loading your bookings"
+          description="Preparing your active tickets, seat assignments, and boarding codes."
+          spinning={true}
+        />
+      );
+    }
+
+    if (tickets.length === 0) {
+      return (
+        <EmptyPanel
+          icon={Ticket}
+          title="No bookings yet"
+          description="Book a trip to see your tickets, boarding QR codes, and trip details here."
+        />
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        {tickets.map((ticket) => (
+          <div key={ticket.id} className={`${cardClassName} overflow-hidden`}>
+            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#031b34_0%,#0077B6_60%,#35A4E6_100%)] px-6 py-6 text-white">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-50">Active boarding pass</div>
+                  <div className="mt-4">
+                    <RouteLine from={ticket.fromStop} to={ticket.toStop} prominent={true} light={true} />
+                  </div>
+                  <p className="mt-3 text-sm text-sky-50/90">{formatDate(ticket.scheduleDate)} · {formatTime(ticket.departureTime)} · Seat {ticket.seatNumber}</p>
+                </div>
+                <span className={`inline-flex h-fit items-center rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.24em] ${statusTone[ticket.status] || 'border border-slate-200 bg-white/15 text-white'}`}>
+                  {ticket.status}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-5 px-6 py-6 xl:grid-cols-[1.35fr_0.95fr]">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className={mutedCardClassName + ' p-4'}>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Reference</div>
+                  <div className="mt-2 font-mono text-sm font-bold text-slate-900">{ticket.bookingRef || ticket.id}</div>
+                </div>
+                <div className={mutedCardClassName + ' p-4'}>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Bus</div>
+                  <div className="mt-2 text-sm font-bold text-slate-900">{ticket.busPlate}</div>
+                </div>
+                <div className={mutedCardClassName + ' p-4'}>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Passenger</div>
+                  <div className="mt-2 text-sm font-bold text-slate-900">{user?.name || 'Commuter'}</div>
+                </div>
+                <div className={mutedCardClassName + ' p-4'}>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Price</div>
+                  <div className="mt-2 text-sm font-bold text-slate-900">{formatCurrency(ticket.price)}</div>
+                </div>
+              </div>
+
+              <div className="rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Boarding QR</div>
+                    <div className="mt-1 text-sm font-bold text-slate-900">Ready to scan at boarding</div>
+                  </div>
+                  <QrPreview value={ticket.bookingRef || ticket.id} />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <button onClick={() => setViewTicket(ticket)} className={primaryButtonClassName + ' !rounded-[20px] !px-4 !py-3'}>
+                    <Eye className="h-4 w-4" /> View
+                  </button>
+                  <button onClick={() => void shareTicket(ticket)} className={secondaryButtonClassName + ' !rounded-[20px] !px-4 !py-3'}>
+                    <Share2 className="h-4 w-4" /> Share
+                  </button>
+                  <button
+                    onClick={() => openTracking(ticket)}
+                    disabled={!isTrackableTicket(ticket)}
+                    className="inline-flex items-center justify-center gap-2 rounded-[20px] border border-[#0077B6]/20 bg-[#0077B6]/8 px-4 py-3 text-sm font-bold text-[#0077B6] transition hover:bg-[#0077B6]/12 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Navigation className="h-4 w-4" /> Track
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderTracking = () => {
+    if (!selectedTrackingTicket) {
+      return (
+        <EmptyPanel
+          icon={Navigation}
+          title="You have no active trips to track"
+          description="Confirmed upcoming trips will appear here automatically when a schedule is available for live tracking."
+        />
+      );
+    }
+
+    return (
+      <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className={`${cardClassName} p-5`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#0077B6]">Track Bus</div>
+              <h3 className="mt-2 text-xl font-black text-slate-900">Active trips</h3>
+              <p className="mt-2 text-sm text-slate-500">Choose the ticket you want to follow live.</p>
+            </div>
+            <span className="rounded-full bg-[#0077B6]/10 px-3 py-1 text-xs font-bold text-[#0077B6]">{trackableTickets.length}</span>
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] p-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              {metricCard('Trackable trips', String(trackableTickets.length), 'text-slate-900')}
+              {metricCard('Booked seats', String(tickets.length), 'text-slate-900')}
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {trackableTickets.map((ticket) => (
+              <button
+                key={ticket.id}
+                onClick={() => setSelectedTrackingTicketId(ticket.id)}
+                className={`w-full rounded-[24px] border p-4 text-left transition ${selectedTrackingTicket.id === ticket.id ? 'border-[#0077B6]/30 bg-[#0077B6]/8 shadow-[0_12px_30px_rgba(0,119,182,0.12)]' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'}`}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{formatShortDate(ticket.scheduleDate)}</div>
+                <div className="mt-3"><RouteLine from={ticket.fromStop} to={ticket.toStop} /></div>
+                <div className="mt-2 text-sm text-slate-500">Seat {ticket.seatNumber} · {formatTime(ticket.departureTime)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className={`${cardClassName} overflow-hidden`}>
+            <div className="bg-[linear-gradient(135deg,#031b34_0%,#0077B6_60%,#35A4E6_100%)] px-6 py-6 text-white">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-50">Currently selected</div>
+                  <div className="mt-4">
+                    <RouteLine from={selectedTrackingTicket.fromStop} to={selectedTrackingTicket.toStop} prominent={true} light={true} />
+                  </div>
+                  <p className="mt-3 text-sm text-sky-50/90">Reference {selectedTrackingTicket.bookingRef} · Bus {selectedTrackingTicket.busPlate}</p>
+                </div>
+                <span className={`inline-flex h-fit items-center rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.24em] ${statusTone[selectedTrackingTicket.status] || 'border border-white/20 bg-white/15 text-white'}`}>
+                  {selectedTrackingTicket.status}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 px-6 py-6 md:grid-cols-4">
+              {metricCard('Departure', formatShortDate(selectedTrackingTicket.scheduleDate), 'text-slate-900')}
+              {metricCard('Time', formatTime(selectedTrackingTicket.departureTime), 'text-slate-900')}
+              {metricCard('Seat', selectedTrackingTicket.seatNumber, 'text-slate-900')}
+              {metricCard('Reference', selectedTrackingTicket.bookingRef, 'text-[#0077B6]')}
+            </div>
+          </div>
+
+          <PassengerTracking
+            scheduleId={selectedTrackingTicket.scheduleId}
+            ticketId={selectedTrackingTicket.id}
+            routeFrom={selectedTrackingTicket.fromStop}
+            routeTo={selectedTrackingTicket.toStop}
+            departureTime={selectedTrackingTicket.departureTime || undefined}
+            autoStart={true}
+          />
         </div>
       </div>
+    );
+  };
 
-      {/* Search Results */}
-      {searchPerformed && (
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-          {searchLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#0077B6] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-gray-600 font-medium">Searching for available trips...</p>
-            </div>
-          ) : searchResults.length > 0 ? (
-            <div>
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-xl font-bold text-gray-900">
-                  Available Trips
-                  <span className="ml-2 text-sm font-semibold bg-[#0077B6]/10 text-[#0077B6] px-2.5 py-1 rounded-full">
-                    {searchResults.length} found
+  const renderHistory = () => {
+    const completedCount = historyTickets.filter((ticket) => ticket.status === 'COMPLETED').length;
+    const cancelledCount = historyTickets.filter((ticket) => ticket.status === 'CANCELLED').length;
+
+    return (
+      <div className="space-y-6">
+        <div className={`${cardClassName} p-6`}>
+          <SectionHeader
+            eyebrow="Trip History"
+            title="Your recent travel archive"
+            description="Review completed and cancelled trips, seat details, and how much you have spent through SafariTix."
+          />
+
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+            {metricCard('History', String(historyTickets.length), 'text-slate-900')}
+            {metricCard('Completed', String(completedCount), 'text-emerald-600')}
+            {metricCard('Cancelled', String(cancelledCount), 'text-rose-600')}
+            {metricCard('Spent', formatCurrency(totalSpent), 'text-[#0077B6]')}
+          </div>
+        </div>
+
+        {historyTickets.length === 0 ? (
+          <EmptyPanel
+            icon={History}
+            title="No trip history yet"
+            description="Completed and cancelled trips will appear here automatically once you have traveled."
+          />
+        ) : (
+          <div className="grid gap-5 xl:grid-cols-2">
+            {historyTickets.map((ticket) => (
+              <div key={ticket.id} className={`${cardClassName} p-6`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Archived trip</div>
+                    <div className="mt-4"><RouteLine from={ticket.fromStop} to={ticket.toStop} prominent={true} /></div>
+                    <p className="mt-3 text-sm text-slate-500">{formatDate(ticket.scheduleDate)} · {formatTime(ticket.departureTime)}</p>
+                  </div>
+                  <span className={`inline-flex h-fit items-center rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.24em] ${statusTone[ticket.status] || 'border border-slate-200 bg-slate-100 text-slate-700'}`}>
+                    {ticket.status}
                   </span>
-                </h3>
-                <div className="text-sm text-gray-500">
-                  {fromLocation} → {toLocation}
-                  {travelDate && ` · ${new Date(travelDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}
+                </div>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  <div className={mutedCardClassName + ' p-4'}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Seat</div>
+                    <div className="mt-2 text-sm font-black text-slate-900">{ticket.seatNumber}</div>
+                  </div>
+                  <div className={mutedCardClassName + ' p-4'}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Bus</div>
+                    <div className="mt-2 text-sm font-black text-slate-900">{ticket.busPlate}</div>
+                  </div>
+                  <div className={mutedCardClassName + ' p-4'}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Fare</div>
+                    <div className="mt-2 text-sm font-black text-slate-900">{formatCurrency(ticket.price)}</div>
+                  </div>
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
-              {/* Booking feedback messages */}
-              {bookingSuccess && (
-                <div className="mb-4 flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-semibold text-green-800">Booking Confirmed!</div>
-                    <div className="text-sm text-green-700">{bookingSuccess}</div>
-                  </div>
-                  <button onClick={() => setBookingSuccess('')} className="ml-auto text-green-600 hover:text-green-800">
-                    <X className="w-4 h-4" />
-                  </button>
+  const renderHelp = () => {
+    return (
+      <div className="space-y-6">
+        <div className={`${cardClassName} p-6`}>
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr] xl:items-center">
+            <div>
+              <SectionHeader
+                eyebrow="Help Center"
+                title="Support built into your commuter dashboard"
+                description="Travel alerts, booking help, and direct support contacts are available here whenever you need them."
+              />
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                {metricCard('Active trips', String(trackableTickets.length), 'text-slate-900')}
+                {metricCard('Past journeys', String(historyTickets.length), 'text-slate-900')}
+                {metricCard('Unread alerts', String(unreadNotifications.length), 'text-amber-600')}
+              </div>
+            </div>
+            <div className="rounded-[28px] bg-[linear-gradient(135deg,#031b34_0%,#0077B6_62%,#35A4E6_100%)] p-6 text-white shadow-[0_24px_50px_rgba(0,119,182,0.22)]">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-white/15 p-3">
+                  <Bell className="h-5 w-5" />
                 </div>
-              )}
-              {bookingError && (
-                <div className="mb-4 flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
-                  <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm text-red-700">{bookingError}</div>
-                  <button onClick={() => setBookingError('')} className="ml-auto text-red-600 hover:text-red-800">
-                    <X className="w-4 h-4" />
-                  </button>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-50/90">Priority support</div>
+                  <div className="mt-1 text-2xl font-black">Travel assistance</div>
                 </div>
-              )}
+              </div>
+              <p className="mt-4 text-sm leading-6 text-sky-50/90">If your trip changes, boarding details update, or you need help with a booking, this panel keeps everything within reach.</p>
+            </div>
+          </div>
+        </div>
 
-              <div className="space-y-4">
-                {searchResults.map((trip: any, idx: number) => (
-                  <div
-                    key={trip.schedule_id || idx}
-                    className={`border-2 rounded-2xl p-5 transition-all ${
-                      selectedTrip?.schedule_id === trip.schedule_id
-                        ? 'border-[#0077B6] bg-blue-50/50 shadow-md'
-                        : 'border-gray-100 hover:border-[#0077B6]/50 hover:shadow-md'
-                    }`}
-                  >
-                    {/* Trip header row */}
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                      {/* Company & Bus Info */}
-                      <div className="flex items-start gap-4 flex-1">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#0077B6] to-[#00A8E8] flex items-center justify-center flex-shrink-0">
-                          <Bus className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-bold text-lg text-gray-900 flex items-center gap-2 flex-wrap">
-                            {trip.company_name && trip.company_name !== 'N/A'
-                              ? trip.company_name
-                              : 'Bus Company'}
-                            {trip.bus_plate && trip.bus_plate !== 'N/A' && (
-                              <span className="text-xs font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md">
-                                {trip.bus_plate}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 text-base font-semibold text-gray-700 mt-0.5">
-                            <MapPin className="w-4 h-4 text-[#0077B6] flex-shrink-0" />
-                            <span>{trip.pickup_stop}</span>
-                            <ArrowRight className="w-4 h-4 text-gray-400 mx-1" />
-                            <MapPin className="w-4 h-4 text-green-500 flex-shrink-0" />
-                            <span>{trip.dropoff_stop}</span>
-                          </div>
-                        </div>
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className={`${cardClassName} p-6`}>
+            <SectionHeader
+              eyebrow="Notifications"
+              title="Recent support and trip updates"
+              description="Latest alerts connected to your travel, booking, and account activity."
+            />
+
+            {notificationsLoading ? (
+              <div className="mt-6 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-6 text-center text-sm font-semibold text-slate-500">Loading notifications...</div>
+            ) : notifications.length === 0 ? (
+              <div className="mt-6 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-6 text-center text-sm text-slate-500">No support notifications yet.</div>
+            ) : (
+              <div className="mt-6 space-y-3">
+                {notifications.map((notification) => (
+                  <div key={notification.id} className="rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-base font-black text-slate-900">{notification.title}</div>
+                        <div className="mt-2 text-sm leading-6 text-slate-600">{notification.message}</div>
                       </div>
-
-                      {/* Trip Meta */}
-                      <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 lg:gap-5">
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <Clock className="w-4 h-4 text-[#0077B6]" />
-                          <div>
-                            <div className="text-xs text-gray-500">Departure</div>
-                            <div className="font-bold text-gray-900">
-                              {formatTime(trip.departure_time)}
-                            </div>
-                          </div>
-                        </div>
-                        {trip.departure_date && (
-                          <div className="flex items-center gap-1.5 text-sm">
-                            <Calendar className="w-4 h-4 text-[#0077B6]" />
-                            <div>
-                              <div className="text-xs text-gray-500">Date</div>
-                              <div className="font-bold text-gray-900">
-                                {new Date(trip.departure_date + 'T00:00:00').toLocaleDateString('en-US', {
-                                  month: 'short', day: 'numeric'
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <User className="w-4 h-4 text-[#0077B6]" />
-                          <div>
-                            <div className="text-xs text-gray-500">Seats left</div>
-                            <div className={`font-bold ${
-                              trip.available_seats <= 5 ? 'text-orange-600' : 'text-gray-900'
-                            }`}>
-                              {trip.available_seats}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right lg:text-left">
-                          <div className="text-xs text-gray-500">Price / seat</div>
-                          <div className="text-xl font-black text-[#0077B6]">
-                            {trip.price > 0 ? `RWF ${Number(trip.price).toLocaleString()}` : 'Contact'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Book Button */}
-                      <button
-                        onClick={() => {
-                          setBookingError('');
-                          setBookingSuccess('');
-                          setSelectedTrip(
-                            selectedTrip?.schedule_id === trip.schedule_id ? null : trip
-                          );
-                        }}
-                        className="w-full lg:w-auto bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white px-6 py-3 rounded-xl font-bold text-sm hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2 flex-shrink-0"
-                      >
-                        <Ticket className="w-4 h-4" />
-                        Book Seat
-                      </button>
+                      {!notification.isRead && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700">New</span>}
                     </div>
-
-                    {/* Inline Booking Panel */}
-                    {selectedTrip?.schedule_id === trip.schedule_id && (
-                      <div className="mt-5 pt-5 border-t border-[#0077B6]/20">
-                        <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <Ticket className="w-5 h-5 text-[#0077B6]" />
-                          Confirm Booking
-                        </h4>
-
-                        {/* Summary */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                          {[{
-                            label: 'Route',
-                            value: `${trip.pickup_stop} → ${trip.dropoff_stop}`
-                          }, {
-                            label: 'Departure',
-                            value: `${formatTime(trip.departure_time)}${trip.departure_date ? ' · ' + new Date(trip.departure_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}`
-                          }, {
-                            label: 'Passengers',
-                            value: String(passengers)
-                          }, {
-                            label: 'Total Price',
-                            value: trip.price > 0 ? `RWF ${(Number(trip.price) * passengers).toLocaleString()}` : 'Contact company'
-                          }].map((item) => (
-                            <div key={item.label} className="bg-gray-50 rounded-xl p-3">
-                              <div className="text-xs text-gray-500 mb-1">{item.label}</div>
-                              <div className="font-bold text-gray-900 text-sm">{item.value}</div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row gap-3">
-                          <button
-                            onClick={() => handleBookSeat(trip)}
-                            disabled={bookingLoading}
-                            className="flex-1 bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white py-3.5 rounded-xl font-bold text-base hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {bookingLoading ? (
-                              <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Processing...</>
-                            ) : (
-                              <><CheckCircle className="w-5 h-5" /> Confirm Booking</>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => setSelectedTrip(null)}
-                            className="px-6 py-3.5 rounded-xl border-2 border-gray-200 font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Recently'}</div>
                   </div>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <Bus className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-gray-900 mb-2">No trips found</h3>
-              <p className="text-gray-600">Try a different date or check if this route is available</p>
-            </div>
-          )}
-        </div>
-      )}
+            )}
 
-      {/* Quick Actions */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          {[
-            { icon: Ticket, label: 'My Bookings', action: () => setActiveTab('bookings'), color: 'blue' },
-            { icon: QrCode, label: 'Check Ticket', action: () => {}, color: 'green' },
-            { icon: Download, label: 'Download', action: () => {}, color: 'purple' },
-            { icon: Navigation, label: 'Track Bus', action: () => setActiveTab('map'), color: 'orange' },
-            { icon: HelpCircle, label: 'Help', action: () => setActiveTab('help'), color: 'red' },
-          ].map((item, idx) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={idx}
-                onClick={item.action}
-                className="bg-white rounded-xl p-6 hover:shadow-xl transition-all duration-300 hover:scale-[1.02] border border-gray-100 group text-center"
-              >
-                <div className={`w-14 h-14 rounded-xl bg-${item.color}-50 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform`}>
-                  <Icon className={`w-7 h-7 text-${item.color}-600`} />
-                </div>
-                <div className="text-sm font-bold text-gray-900">{item.label}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Popular Routes */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">Popular Routes</h2>
-            <p className="text-sm text-gray-600">Quick access to frequently traveled routes</p>
-          </div>
-          <TrendingUp className="w-6 h-6 text-[#0077B6]" />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {popularRoutes.length > 0 ? popularRoutes.map((route: any) => (
-            <div
-              key={route.id}
-              className="group bg-white border-2 border-gray-100 rounded-xl p-5 hover:border-[#0077B6] hover:shadow-lg transition-all cursor-pointer"
-              onClick={() => {
-                setFromLocation(route.from);
-                setToLocation(route.to);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <Bus className="w-5 h-5 text-gray-400 group-hover:text-[#0077B6] transition-colors" />
-                <div className="text-xs text-gray-500 font-semibold">{parseDateLabel(route.scheduleDate)}</div>
+            {notificationsError && (
+              <div className="mt-4 flex items-start gap-2 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{notificationsError}</span>
               </div>
-              
-              <div className="mb-4">
-                <div className="font-bold text-lg text-gray-900 mb-1">
-                  {route.from || route.origin} → {route.to || route.destination}
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span>{route.duration || '2-3h'}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">From</div>
-                  <div className="font-bold text-[#0077B6]">
-                    RWF {(route.price || route.price_per_seat || 0).toLocaleString()}
-                  </div>
-                </div>
-                <button className="w-9 h-9 rounded-lg bg-[#0077B6]/10 group-hover:bg-[#0077B6] flex items-center justify-center transition-colors">
-                  <ArrowRight className="w-5 h-5 text-[#0077B6] group-hover:text-white transition-colors" />
-                </button>
-              </div>
-            </div>
-          )) : (
-            <div className="col-span-full text-center py-8">
-              <Bus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-600">Loading popular routes...</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* My Upcoming Trips */}
-      {upcomingTrips.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">My Upcoming Trips</h2>
-              <p className="text-sm text-gray-600">Your confirmed bookings</p>
-            </div>
-            <button
-              onClick={() => setActiveTab('bookings')}
-              className="text-[#0077B6] font-semibold text-sm hover:underline flex items-center gap-1"
-            >
-              View All
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            )}
           </div>
 
-          <div className="space-y-4">
-            {upcomingTrips.slice(0, 2).map((trip: any) => (
-              <div
-                key={trip.id}
-                className="border-2 border-gray-100 rounded-xl p-5 hover:border-[#0077B6] hover:shadow-md transition-all"
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#0077B6] to-[#00A8E8] flex items-center justify-center">
-                        <Bus className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-lg text-gray-900">{trip.from} → {trip.to}</div>
-                        <div className="text-sm text-gray-500">{trip.company || 'SafariTix Express'}</div>
-                      </div>
+          <div className="space-y-6">
+            <div className={`${cardClassName} p-6`}>
+              <SectionHeader
+                eyebrow="Quick Actions"
+                title="Get where you need to go"
+                description="Fast links to the most important commuter tasks."
+              />
+              <div className="mt-5 grid gap-3">
+                <ShortcutCard
+                  icon={Ticket}
+                  title="Open My Bookings"
+                  description="View your boarding passes and seat details."
+                  onClick={() => setActiveTab('bookings')}
+                />
+                <ShortcutCard
+                  icon={Navigation}
+                  title="Track a Bus"
+                  description="See live location, ETA, and route progress."
+                  onClick={() => setActiveTab('map')}
+                />
+                <ShortcutCard
+                  icon={Search}
+                  title="Book another trip"
+                  description="Search shared routes and reserve a seat."
+                  onClick={() => setActiveTab('shared')}
+                />
+              </div>
+            </div>
+
+            <div className={`${cardClassName} p-6`}>
+              <SectionHeader
+                eyebrow="Support Contacts"
+                title="Reach SafariTix support"
+                description="Dedicated commuter help channels and support windows."
+              />
+              <div className="mt-5 space-y-4 text-sm text-slate-600">
+                <ContactCard label="Email support" value="support@safaritix.com" />
+                <ContactCard label="Phone assistance" value="+250 700 000 000" />
+                <ContactCard label="Support hours" value="Every day, 06:00 - 22:00 CAT" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSharedTab = () => {
+    return (
+      <div className="space-y-6">
+        <div className={`${cardClassName} overflow-hidden`}>
+          <div className="relative overflow-hidden bg-[linear-gradient(135deg,#031b34_0%,#0077B6_58%,#78c9f2_100%)] px-6 py-6 text-white lg:px-8 lg:py-8">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.12),transparent_30%)]" />
+            <div className="relative grid gap-8 xl:grid-cols-[1.12fr_0.88fr]">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-50">
+                  <Bus className="h-4 w-4" /> Digital commuter platform
+                </div>
+                <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[1.05] text-white lg:text-5xl">Book faster, manage live tickets, and track every journey with confidence.</h1>
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-sky-50/90 lg:text-base">SafariTix brings booking, boarding passes, and live trip visibility into one modern commuter workspace designed for daily transport.
+                </p>
+
+                <div className="mt-7 grid gap-4 md:grid-cols-3">
+                  {metricCard('Upcoming trips', String(trackableTickets.length), 'text-slate-900')}
+                  {metricCard('Booked tickets', String(tickets.length), 'text-slate-900')}
+                  {metricCard('Unread alerts', String(unreadNotifications.length), 'text-[#0077B6]')}
+                </div>
+              </div>
+
+              <form onSubmit={handleSearch} className="rounded-[30px] border border-white/20 bg-white p-5 text-slate-900 shadow-[0_30px_60px_rgba(8,47,73,0.22)] lg:p-6">
+                <SectionHeader
+                  eyebrow="Search Trips"
+                  title="Find your next seat"
+                  description="Search available buses by route, date, and passenger count."
+                />
+
+                <div className="mt-5 grid gap-4">
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">From</span>
+                    <div className="relative">
+                      <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                      <input list="commuter-stop-options-from" value={fromLocation} onChange={(event) => setFromLocation(event.target.value)} placeholder="Select departure" className={fieldClassName + ' pl-12'} />
                     </div>
+                  </label>
 
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Date</div>
-                        <div className="font-semibold text-gray-900">
-                          {new Date(trip.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Time</div>
-                        <div className="font-semibold text-gray-900">{trip.time}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Seat</div>
-                        <div className="font-semibold text-gray-900">#{trip.seat}</div>
-                      </div>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">To</span>
+                    <div className="relative">
+                      <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                      <input list="commuter-stop-options-to" value={toLocation} onChange={(event) => setToLocation(event.target.value)} placeholder="Select destination" className={fieldClassName + ' pl-12'} />
                     </div>
+                  </label>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date</span>
+                      <div className="relative">
+                        <Calendar className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                        <input type="date" value={travelDate} onChange={(event) => setTravelDate(event.target.value)} className={fieldClassName + ' pl-12'} />
+                      </div>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Passengers</span>
+                      <div className="flex h-[54px] items-center rounded-[20px] border border-slate-200 bg-white px-4 shadow-sm">
+                        <User className="h-5 w-5 text-slate-400" />
+                        <button type="button" onClick={() => setPassengers((current) => Math.max(1, current - 1))} className="ml-auto rounded-full bg-slate-100 px-3 py-1 text-lg font-black text-slate-600 transition hover:bg-slate-200">-</button>
+                        <span className="w-10 text-center text-sm font-black text-slate-900">{passengers}</span>
+                        <button type="button" onClick={() => setPassengers((current) => Math.min(10, current + 1))} className="rounded-full bg-slate-100 px-3 py-1 text-lg font-black text-slate-600 transition hover:bg-slate-200">+</button>
+                      </div>
+                    </label>
                   </div>
 
-                  <div className="flex lg:flex-col gap-2">
-                    <span className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-lg font-semibold text-sm">
-                      <CheckCircle className="w-4 h-4" />
-                      Confirmed
-                    </span>
-                    <button className="flex-1 lg:flex-initial bg-[#0077B6] text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-[#005F8E] transition-colors">
-                      View Ticket
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Announcements */}
-      {announcements.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Bell className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Travel Updates</h2>
-              <p className="text-sm text-gray-600">Important announcements</p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {announcements.map((announcement: any) => (
-              <div
-                key={announcement.id}
-                className={`flex items-start gap-4 p-4 rounded-xl border-2 ${
-                  announcement.type === 'warning' 
-                    ? 'border-yellow-200 bg-yellow-50' 
-                    : 'border-blue-200 bg-blue-50'
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  announcement.type === 'warning' ? 'bg-yellow-100' : 'bg-blue-100'
-                }`}>
-                  {announcement.type === 'warning' ? (
-                    <AlertCircle className="w-5 h-5 text-yellow-600" />
-                  ) : (
-                    <Info className="w-5 h-5 text-blue-600" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900 mb-1">{announcement.title}</div>
-                  <div className="text-sm text-gray-700">{announcement.message}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Trust & Features */}
-      <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-2xl border border-gray-200 p-6 lg:p-8">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Why Choose SafariTix?</h2>
-          <p className="text-gray-600">Your trusted partner for bus travel across Rwanda</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            { 
-              icon: Shield, 
-              title: 'Secure Payments', 
-              desc: 'MTN Mobile Money & card payments',
-              color: 'blue'
-            },
-            { 
-              icon: Award, 
-              title: 'Verified Companies', 
-              desc: 'RURA certified operators only',
-              color: 'green'
-            },
-            { 
-              icon: Smartphone, 
-              title: 'Digital Tickets', 
-              desc: 'QR code tickets on your phone',
-              color: 'purple'
-            },
-            { 
-              icon: CheckCircle, 
-              title: 'Official Routes', 
-              desc: 'Government-approved routes',
-              color: 'orange'
-            },
-          ].map((feature, idx) => {
-            const Icon = feature.icon;
-            return (
-              <div key={idx} className="text-center">
-                <div className={`w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center mx-auto mb-4`}>
-                  <Icon className={`w-8 h-8 text-${feature.color}-600`} />
-                </div>
-                <div className="font-bold text-gray-900 mb-1">{feature.title}</div>
-                <div className="text-sm text-gray-600">{feature.desc}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ========================================
-  // SIDEBAR NAVIGATION
-  // ========================================
-  const navigationItems = [
-    { id: 'shared', label: 'Shared Trips', icon: Search },
-    { id: 'bookings', label: 'My Bookings', icon: Ticket },
-    { id: 'history', label: 'Trip History', icon: History },
-    { id: 'map', label: 'Track Bus', icon: Navigation },
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'help', label: 'Help Center', icon: HelpCircle },
-  ];
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Mobile Header */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 z-50">
-        <div className="h-full px-4 flex items-center justify-between">
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100"
-          >
-            <Menu className="w-6 h-6 text-gray-700" />
-          </button>
-          
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0077B6] to-[#00A8E8] flex items-center justify-center">
-              <Bus className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-black text-xl text-gray-900">SafariTix</span>
-          </div>
-
-          <NotificationBell />
-        </div>
-      </header>
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed top-0 left-0 h-full w-72 bg-white border-r border-gray-200
-        transition-transform duration-300 ease-out z-50
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        {/* Logo */}
-        <div className="h-16 px-6 flex items-center justify-between border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0077B6] to-[#00A8E8] flex items-center justify-center shadow-lg">
-              <Bus className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <div className="font-black text-lg text-gray-900">SafariTix</div>
-              <div className="text-[10px] text-gray-500 font-medium -mt-1">PASSENGER</div>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100"
-          >
-            <X className="w-5 h-5 text-gray-600" />
-          </button>
-        </div>
-
-        {/* User Profile Card */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="bg-gradient-to-br from-[#0077B6] to-[#005F8E] rounded-xl p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
-                <User className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-white truncate">{user?.name || 'Passenger'}</div>
-                <div className="text-xs text-white/70 truncate">{user?.email || 'passenger@example.com'}</div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-xs text-white/90">
-              <div className="flex items-center gap-1">
-                <Star className="w-3 h-3 fill-yellow-300 text-yellow-300" />
-                <span className="font-bold">250 pts</span>
-              </div>
-              <div className="h-3 w-px bg-white/30"></div>
-              <div className="flex items-center gap-1">
-                <Ticket className="w-3 h-3" />
-                <span className="font-bold">{upcomingTrips.length} active</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="p-3 space-y-1 flex-1 overflow-y-auto">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-xl
-                  transition-all duration-200 text-sm font-semibold
-                  ${activeTab === item.id
-                    ? 'bg-[#0077B6] text-white shadow-lg'
-                    : 'text-gray-600 hover:bg-gray-50'
-                  }
-                `}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="flex-1 text-left">{item.label}</span>
-                {item.id === 'shared' && activeTab === item.id && (
-                  <Zap className="w-4 h-4" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Logout */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-          <button
-            onClick={signOut}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-600 hover:bg-red-50 transition-all text-sm font-semibold"
-          >
-            <LogOut className="w-5 h-5" />
-            <span>Logout</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Mobile Sidebar Overlay */}
-      {isMobileMenuOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/40 z-40"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* Main Content */}
-      <main className="lg:ml-72 pt-16 lg:pt-0 min-h-screen">
-        <div className="p-4 lg:p-8">
-          {activeTab === 'shared' && renderSharedTripSearch()}
-          {activeTab === 'bookings' && (
-            <div>
-              {/* ── Header ── */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">My Bookings</h2>
-                  <p className="text-gray-500 text-sm mt-1">
-                    {myTickets.length > 0 ? `${myTickets.length} ticket${myTickets.length !== 1 ? 's' : ''}` : 'Your digital transport tickets'}
-                  </p>
-                </div>
-                <button onClick={fetchMyTickets}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#0077B6] text-white rounded-xl text-sm font-semibold hover:bg-[#005F8E] transition-colors shadow-sm">
-                  <RefreshCw className="w-4 h-4" /> Refresh
-                </button>
-              </div>
-
-              {/* ── Loading ── */}
-              {myTicketsLoading && (
-                <div className="flex flex-col items-center justify-center py-24 gap-4">
-                  <div className="w-12 h-12 rounded-full border-4 border-[#0077B6]/20 border-t-[#0077B6] animate-spin" />
-                  <p className="text-gray-400 font-medium">Loading your tickets…</p>
-                </div>
-              )}
-
-              {/* ── Error ── */}
-              {myTicketsError && !myTicketsLoading && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start gap-3 text-red-700">
-                  <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
-                  <p className="text-sm font-medium">{myTicketsError}</p>
-                </div>
-              )}
-
-              {/* ── Empty ── */}
-              {!myTicketsLoading && !myTicketsError && myTickets.length === 0 && (
-                <div className="text-center py-24">
-                  <div className="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-5">
-                    <Ticket className="w-9 h-9 text-[#0077B6]" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-800 mb-2">No bookings yet</h3>
-                  <p className="text-gray-500 mb-6 max-w-xs mx-auto">Search for a trip and book your seat to see your digital tickets here.</p>
-                  <button onClick={() => setActiveTab('shared')}
-                    className="px-7 py-3 bg-[#0077B6] text-white rounded-2xl font-bold text-sm hover:bg-[#005F8E] transition-colors shadow-md">
-                    Search for a Trip
+                  <button type="submit" disabled={searchLoading} className={primaryButtonClassName + ' w-full'}>
+                    {searchLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    {searchLoading ? 'Searching...' : 'Search available buses'}
                   </button>
                 </div>
-              )}
-
-              {/* ── Tickets Grid ── */}
-              {!myTicketsLoading && myTickets.length > 0 && (() => {
-                const fmtDate = (d: string) => {
-                  if (!d) return '—';
-                  const dt = new Date(d);
-                  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                };
-                const fmtTime = (t: string) => {
-                  if (!t) return '—';
-                  return String(t).slice(0, 5);
-                };
-                const statusStyle = (s: string) => {
-                  const u = (s || '').toUpperCase();
-                  if (u === 'CONFIRMED') return { bg: 'bg-emerald-500', text: 'text-white', dot: 'bg-emerald-300' };
-                  if (u === 'BOARDING')  return { bg: 'bg-[#0077B6]',  text: 'text-white', dot: 'bg-blue-300' };
-                  if (u === 'COMPLETED') return { bg: 'bg-gray-500',   text: 'text-white', dot: 'bg-gray-300' };
-                  if (u === 'CANCELLED') return { bg: 'bg-red-500',    text: 'text-white', dot: 'bg-red-300' };
-                  return { bg: 'bg-amber-400', text: 'text-amber-900', dot: 'bg-amber-200' };
-                };
-                const countdown = (dateStr: string, timeStr: string) => {
-                  if (!dateStr || !timeStr) return null;
-                  const raw = `${String(dateStr).slice(0, 10)}T${String(timeStr).slice(0, 5)}:00`;
-                  const dep = new Date(raw);
-                  const now = new Date();
-                  const diff = dep.getTime() - now.getTime();
-                  if (diff <= 0) return null;
-                  const h = Math.floor(diff / 3600000);
-                  const m = Math.floor((diff % 3600000) / 60000);
-                  if (h > 48) return null;
-                  return h > 0 ? `Boarding in ${h}h ${m}m` : `Boarding in ${m}m`;
-                };
-                const buildQrData = (t: any) => {
-                  const id = t.booking_ref || t.id || 'N/A';
-                  return `https://safaritix.com/scan/${id}`;
-                };
-                const canCancel = (t: any) => {
-                  const u = (t.status || '').toUpperCase();
-                  if (u === 'CANCELLED' || u === 'COMPLETED') return false;
-                  if (!t.schedule_date || !t.departure_time) return true;
-                  const dep = new Date(`${String(t.schedule_date).slice(0, 10)}T${String(t.departure_time).slice(0, 5)}:00`);
-                  return dep.getTime() > Date.now();
-                };
-
-                return (
-                  <div className="grid gap-5 sm:grid-cols-1 lg:grid-cols-2">
-                    {myTickets.map((ticket: any) => {
-                      const st = statusStyle(ticket.status);
-                      const timer = countdown(ticket.schedule_date, ticket.departure_time || ticket.time);
-                      const qrData = buildQrData(ticket);
-                      const ticketKey = ticket.id || ticket.booking_ref || Math.random();
-                      return (
-                        <div key={ticketKey}
-                          className="bg-white rounded-3xl border border-gray-100 shadow-md overflow-hidden flex flex-col hover:shadow-lg transition-shadow">
-
-                          {/* ── TOP: Route + Status ── */}
-                          <div className="bg-gradient-to-r from-[#0077B6] to-[#005F8E] px-5 py-4 flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 text-white font-black text-base leading-tight">
-                                <span className="truncate">{ticket.from_stop || '—'}</span>
-                                <ArrowRight className="w-4 h-4 shrink-0 opacity-80" />
-                                <span className="truncate">{ticket.to_stop || '—'}</span>
-                              </div>
-                              {timer && (
-                                <div className="mt-1.5 flex items-center gap-1.5 text-blue-200 text-xs font-semibold">
-                                  <Timer className="w-3 h-3" /> {timer}
-                                </div>
-                              )}
-                            </div>
-                            <span className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${st.bg} ${st.text}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-                              {(ticket.status || 'CONFIRMED').toUpperCase()}
-                            </span>
-                          </div>
-
-                          {/* ── TORN EDGE ── */}
-                          <div className="flex items-center">
-                            <div className="w-4 h-4 bg-gray-50 rounded-full -translate-x-2 border-r border-gray-100" style={{ marginLeft: '-8px' }} />
-                            <div className="flex-1 border-t-2 border-dashed border-gray-200" />
-                            <div className="w-4 h-4 bg-gray-50 rounded-full translate-x-2 border-l border-gray-100" style={{ marginRight: '-8px' }} />
-                          </div>
-
-                          {/* ── MIDDLE: Details ── */}
-                          <div className="px-5 py-4">
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Date</p>
-                                <div className="flex items-center gap-1.5">
-                                  <Calendar className="w-3.5 h-3.5 text-[#0077B6] shrink-0" />
-                                  <span className="text-sm font-semibold text-gray-800">{fmtDate(ticket.schedule_date)}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Time</p>
-                                <div className="flex items-center gap-1.5">
-                                  <Clock className="w-3.5 h-3.5 text-[#0077B6] shrink-0" />
-                                  <span className="text-sm font-semibold text-gray-800">{fmtTime(ticket.departure_time || ticket.time || '')}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Seat</p>
-                                <div className="flex items-center gap-1.5">
-                                  <User className="w-3.5 h-3.5 text-[#0077B6] shrink-0" />
-                                  <span className="text-sm font-black text-[#0077B6]">{ticket.seat_number || '—'}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Price</p>
-                                <div className="flex items-center gap-1.5">
-                                  <CreditCard className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                  <span className="text-sm font-black text-gray-900">
-                                    {ticket.price != null ? `${Number(ticket.price).toLocaleString()} RWF` : '—'}
-                                  </span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Bus</p>
-                                <div className="flex items-center gap-1.5">
-                                  <Bus className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                                  <span className="text-sm font-semibold text-gray-700">{ticket.bus_plate || '—'}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Ticket ID</p>
-                                <div className="flex items-center gap-1.5">
-                                  <QrCode className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                                  <span className="text-[11px] font-mono text-gray-500 truncate max-w-[110px]">{ticket.booking_ref || ticket.id || '—'}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* ── TORN EDGE ── */}
-                          <div className="flex items-center">
-                            <div className="w-4 h-4 bg-gray-50 rounded-full -translate-x-2 border-r border-gray-100" style={{ marginLeft: '-8px' }} />
-                            <div className="flex-1 border-t-2 border-dashed border-gray-200" />
-                            <div className="w-4 h-4 bg-gray-50 rounded-full translate-x-2 border-l border-gray-100" style={{ marginRight: '-8px' }} />
-                          </div>
-
-                          {/* ── QR CODE — main scan area ── */}
-                          <div className="px-5 py-5 flex flex-col items-center gap-3 bg-gray-50/40">
-                            <div className="p-3 bg-white rounded-2xl border-2 border-[#0077B6]/20 shadow-md">
-                              <QRCodeSVG value={qrData} size={180} level="H"
-                                bgColor="#ffffff" fgColor="#0077B6"
-                                includeMargin={true} />
-                            </div>
-                            <div className="text-center">
-                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Scan to Board</p>
-                              <p className="text-[11px] font-mono text-gray-400 mt-0.5">{ticket.booking_ref || ticket.id || '—'}</p>
-                            </div>
-                          </div>
-
-                          {/* ── TORN EDGE ── */}
-                          <div className="flex items-center">
-                            <div className="w-4 h-4 bg-gray-50 rounded-full -translate-x-2 border-r border-gray-100" style={{ marginLeft: '-8px' }} />
-                            <div className="flex-1 border-t-2 border-dashed border-gray-200" />
-                            <div className="w-4 h-4 bg-gray-50 rounded-full translate-x-2 border-l border-gray-100" style={{ marginRight: '-8px' }} />
-                          </div>
-
-                          {/* ── BOTTOM: Action Buttons ── */}
-                          <div className="px-5 py-3 bg-gray-50/60 flex flex-wrap items-center gap-2">
-                            <button onClick={() => setViewTicket(ticket)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0077B6] text-white text-xs font-bold hover:bg-[#005F8E] transition-colors">
-                              <Eye className="w-3.5 h-3.5" /> View Ticket
-                            </button>
-                            <button
-                              onClick={() => {
-                                const data = `SafariTix Ticket\n\n${ticket.from_stop} → ${ticket.to_stop}\nDate: ${fmtDate(ticket.schedule_date)}\nTime: ${fmtTime(ticket.departure_time || ticket.time || '')}\nSeat: ${ticket.seat_number}\nBus: ${ticket.bus_plate || '—'}\nTicket ID: ${ticket.booking_ref || ticket.id}\nPrice: ${ticket.price} RWF`;
-                                const url = `https://wa.me/?text=${encodeURIComponent(data)}`;
-                                window.open(url, '_blank');
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors">
-                              <Share2 className="w-3.5 h-3.5" /> Share
-                            </button>
-                            {canCancel(ticket) && (
-                              <button
-                                disabled={cancellingId === (ticket.id || ticket.booking_ref)}
-                                onClick={async () => {
-                                  const tid = ticket.id || ticket.booking_ref;
-                                  if (!confirm('Cancel this ticket?')) return;
-                                  setCancellingId(tid);
-                                  try {
-                                    const res = await fetch(`/api/tickets/${tid}/cancel`, {
-                                      method: 'PATCH',
-                                      headers: { Authorization: `Bearer ${accessToken}` },
-                                    });
-                                    if (res.ok) fetchMyTickets();
-                                  } catch {}
-                                  finally { setCancellingId(null); }
-                                }}
-                                className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-600 border border-red-200 text-xs font-bold hover:bg-red-100 transition-colors disabled:opacity-50">
-                                <XCircle className="w-3.5 h-3.5" />
-                                {cancellingId === (ticket.id || ticket.booking_ref) ? 'Cancelling…' : 'Cancel'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-
-              {/* ══ Boarding Pass Modal ══ */}
-              {viewTicket && (() => {
-                const t = viewTicket;
-                const fmtDate = (d: string) => {
-                  if (!d) return '—';
-                  const dt = new Date(d);
-                  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-                };
-                const fmtTime = (s: string) => s ? String(s).slice(0, 5) : '—';
-                const statusColor = (s: string) => {
-                  const u = (s || '').toUpperCase();
-                  if (u === 'CONFIRMED') return 'text-emerald-400';
-                  if (u === 'CANCELLED') return 'text-red-400';
-                  if (u === 'COMPLETED') return 'text-gray-400';
-                  return 'text-amber-400';
-                };
-                const qrData = `https://safaritix.com/scan/${t.booking_ref || t.id || 'N/A'}`;
-                return (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-                    onClick={() => setViewTicket(null)}>
-                    <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl"
-                      onClick={e => e.stopPropagation()}>
-
-                      {/* Header strip */}
-                      <div className="bg-gradient-to-r from-[#0077B6] to-[#005F8E] px-6 pt-6 pb-8 relative">
-                        <button onClick={() => setViewTicket(null)}
-                          className="absolute top-4 right-4 p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors">
-                          <X className="w-4 h-4 text-white" />
-                        </button>
-                        <div className="flex items-center gap-2 text-blue-200 text-xs font-bold uppercase mb-2">
-                          <Shield className="w-3.5 h-3.5" /> SafariTix Digital Ticket
-                        </div>
-                        <div className="text-white text-xl font-black leading-tight">
-                          {t.from_stop || '—'}
-                        </div>
-                        <div className="flex items-center gap-2 my-1">
-                          <div className="flex-1 border-t border-dashed border-blue-300/60" />
-                          <ArrowRight className="w-4 h-4 text-blue-300" />
-                          <div className="flex-1 border-t border-dashed border-blue-300/60" />
-                        </div>
-                        <div className="text-white text-xl font-black leading-tight">
-                          {t.to_stop || '—'}
-                        </div>
-                        <span className={`mt-3 inline-block text-sm font-black uppercase ${statusColor(t.status)}`}>
-                          ● {(t.status || 'CONFIRMED').toUpperCase()}
-                        </span>
-                      </div>
-
-                      {/* Tear */}
-                      <div className="flex items-center bg-white">
-                        <div className="w-5 h-5 rounded-full bg-gray-100 -ml-2.5 border border-gray-200" />
-                        <div className="flex-1 border-t-2 border-dashed border-gray-200 mx-1" />
-                        <div className="w-5 h-5 rounded-full bg-gray-100 -mr-2.5 border border-gray-200" />
-                      </div>
-
-                      {/* Body */}
-                      <div className="px-6 py-5 space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          {[
-                            { label: 'Passenger', value: t.passenger_name || user?.name || '—', icon: User },
-                            { label: 'Seat', value: String(t.seat_number || '—'), icon: CreditCard },
-                            { label: 'Date', value: fmtDate(t.schedule_date), icon: Calendar },
-                            { label: 'Time', value: fmtTime(t.departure_time || t.time || ''), icon: Clock },
-                            { label: 'Bus', value: t.bus_plate || '—', icon: Bus },
-                            { label: 'Price', value: t.price != null ? `${Number(t.price).toLocaleString()} RWF` : '—', icon: CreditCard },
-                          ].map(({ label, value, icon: Icon }) => (
-                            <div key={label}>
-                              <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">{label}</p>
-                              <div className="flex items-center gap-1.5">
-                                <Icon className="w-3.5 h-3.5 text-[#0077B6] shrink-0" />
-                                <span className="text-sm font-bold text-gray-800">{value}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-1">
-                          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Ticket ID</p>
-                          <p className="text-xs font-mono text-gray-500 break-all">{t.booking_ref || t.id || '—'}</p>
-                        </div>
-                      </div>
-
-                      {/* Tear */}
-                      <div className="flex items-center bg-white">
-                        <div className="w-5 h-5 rounded-full bg-gray-100 -ml-2.5 border border-gray-200" />
-                        <div className="flex-1 border-t-2 border-dashed border-gray-200 mx-1" />
-                        <div className="w-5 h-5 rounded-full bg-gray-100 -mr-2.5 border border-gray-200" />
-                      </div>
-
-                      {/* QR */}
-                      <div className="px-6 py-5 flex flex-col items-center gap-2 bg-gray-50/60">
-                        <div className="p-4 bg-white rounded-2xl border-2 border-[#0077B6]/20 shadow-md">
-                          <QRCodeSVG value={qrData} size={220} level="H"
-                            bgColor="#ffffff" fgColor="#0077B6"
-                            includeMargin={true} />
-                        </div>
-                        <p className="text-xs text-gray-400 font-semibold text-center">Show this QR code to the driver when boarding</p>
-                        <button onClick={() => setViewTicket(null)}
-                          className="mt-2 w-full py-3 bg-[#0077B6] text-white rounded-2xl font-bold text-sm hover:bg-[#005F8E] transition-colors">
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+              </form>
             </div>
-          )}
-          {activeTab === 'history' && (
-            <div className="text-center py-20">
-              <History className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Trip History</h3>
-              <p className="text-gray-600">View your past trips here</p>
-            </div>
-          )}
-          {activeTab === 'map' && (
-            <div className="text-center py-20">
-              <Navigation className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Track Bus</h3>
-              <p className="text-gray-600">Live bus tracking coming soon</p>
-            </div>
-          )}
-          {activeTab === 'profile' && (
-            <AccountSettings />
-          )}
-          {activeTab === 'help' && (
-            <div className="text-center py-20">
-              <HelpCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Help Center</h3>
-              <p className="text-gray-600">Get support and FAQs</p>
-            </div>
-          )}
+          </div>
         </div>
-      </main>
+
+        {(bookingError || bookingSuccess || ticketsError) && (
+          <div className="space-y-3">
+            {bookingError && (
+              <div className="flex items-start gap-3 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{bookingError}</span>
+              </div>
+            )}
+            {bookingSuccess && (
+              <div className="flex items-start gap-3 rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{bookingSuccess}</span>
+              </div>
+            )}
+            {ticketsError && (
+              <div className="flex items-start gap-3 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{ticketsError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {renderSearchResults()}
+
+        <div className="grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
+          <div className={`${cardClassName} p-6`}>
+            <SectionHeader
+              eyebrow="Quick Actions"
+              title="Move through the platform faster"
+              description="Access booking management, live tracking, support, and history from one place."
+            />
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <ShortcutCard icon={Ticket} title="My Bookings" description="Open your tickets and boarding QR codes." onClick={() => setActiveTab('bookings')} />
+              <ShortcutCard icon={Navigation} title="Track Bus" description="See live movement and estimated arrival time." onClick={() => setActiveTab('map')} />
+              <ShortcutCard icon={History} title="Trip History" description="Review completed and cancelled trips." onClick={() => setActiveTab('history')} />
+              <ShortcutCard icon={HelpCircle} title="Help Center" description="Support notifications and contact details." onClick={() => setActiveTab('help')} />
+            </div>
+          </div>
+
+          <div className={`${cardClassName} p-6`}>
+            <SectionHeader
+              eyebrow="Popular Routes"
+              title="Fast route shortcuts"
+              description="Tap a route to prefill your search and book faster."
+            />
+
+            <div className="mt-6 grid gap-3">
+              {popularRoutes.length === 0 ? (
+                <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-5 text-sm text-slate-500">Popular schedules will appear here once route data is available.</div>
+              ) : (
+                popularRoutes.map((route) => (
+                  <button
+                    key={`${route.schedule_id}-${route.pickup_stop}-${route.dropoff_stop}`}
+                    onClick={() => {
+                      setFromLocation(route.pickup_stop);
+                      setToLocation(route.dropoff_stop);
+                    }}
+                    className="rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-4 text-left transition hover:border-[#0077B6]/20 hover:bg-[#0077B6]/5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <RouteLine from={route.pickup_stop} to={route.dropoff_stop} />
+                        <div className="mt-2 text-sm text-slate-500">{formatShortDate(route.departure_date)} · {formatTime(route.departure_time)}</div>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{route.available_seats ?? 0} seats</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'shared':
+        return renderSharedTab();
+      case 'bookings':
+        return renderBookings();
+      case 'map':
+        return renderTracking();
+      case 'history':
+        return renderHistory();
+      case 'help':
+        return renderHelp();
+      case 'profile':
+        return <AccountSettings />;
+      default:
+        return renderSharedTab();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f4f9ff_0%,#eef5fb_36%,#f8fbff_100%)] text-slate-900">
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(0,119,182,0.1),transparent_26%),radial-gradient(circle_at_top_right,rgba(53,164,230,0.12),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(3,27,52,0.08),transparent_28%)]" />
+      <datalist id="commuter-stop-options-from">
+        {stopOptions.filter((stop) => stop !== toLocation).map((stop) => <option key={`from-${stop}`} value={stop} />)}
+      </datalist>
+      <datalist id="commuter-stop-options-to">
+        {stopOptions.filter((stop) => stop !== fromLocation).map((stop) => <option key={`to-${stop}`} value={stop} />)}
+      </datalist>
+
+      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/75 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-4 py-4 lg:px-6 xl:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <button onClick={() => setMobileMenuOpen((current) => !current)} className="inline-flex rounded-2xl border border-slate-200 bg-white p-2 text-slate-700 shadow-sm lg:hidden">
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div className="rounded-[22px] bg-[linear-gradient(135deg,#031b34_0%,#0077B6_100%)] p-3 text-white shadow-[0_18px_36px_rgba(0,119,182,0.24)]">
+              <Bus className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#0077B6]">SafariTix</div>
+              <div className="truncate text-lg font-black text-slate-900">Commuter Dashboard</div>
+            </div>
+          </div>
+
+          <div className="hidden items-center gap-2 rounded-full border border-white/70 bg-white/80 p-2 shadow-[0_14px_32px_rgba(15,23,42,0.06)] xl:flex">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold transition ${activeTab === item.id ? 'bg-[#0077B6] text-white shadow-[0_16px_30px_rgba(0,119,182,0.24)]' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={() => void refreshDashboard()} className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 md:inline-flex">
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <NotificationBell />
+            <div className="hidden items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm lg:flex">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0077B6]/10 text-[#0077B6]">
+                <User className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-black text-slate-900">{user?.name || 'Commuter'}</div>
+                <div className="max-w-[220px] truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{user?.email || 'Passenger account'}</div>
+              </div>
+            </div>
+            <button onClick={signOut} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 transition hover:bg-rose-100">
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          </div>
+        </div>
+
+        {mobileMenuOpen && (
+          <div className="border-t border-slate-200 bg-white/95 px-4 py-4 backdrop-blur lg:hidden">
+            <div className="grid gap-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`inline-flex items-center gap-3 rounded-[22px] px-4 py-3 text-left text-sm font-bold transition ${activeTab === item.id ? 'bg-[#0077B6] text-white' : 'bg-slate-50 text-slate-700'}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </header>
+
+      <div className="mx-auto grid max-w-[1440px] gap-6 px-4 py-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:px-6 xl:px-8">
+        <aside className="hidden lg:block">
+          <div className={`${cardClassName} sticky top-28 overflow-hidden p-5`}>
+            <div className="rounded-[28px] bg-[linear-gradient(145deg,#031b34_0%,#0077B6_58%,#6ec5f0_100%)] p-6 text-white shadow-[0_26px_60px_rgba(0,119,182,0.24)]">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-50/90">Welcome back</div>
+              <div className="mt-3 text-3xl font-black leading-tight">{user?.name || 'Commuter'}</div>
+              <p className="mt-3 text-sm leading-6 text-sky-50/90">A single workspace for booking, boarding, and live transport visibility.</p>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <SidebarMiniStat label="Active trips" value={String(trackableTickets.length)} />
+                <SidebarMiniStat label="Unread alerts" value={String(unreadNotifications.length)} />
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {metricCard('Active trips', String(trackableTickets.length), 'text-slate-900')}
+              {metricCard('Trip history', String(historyTickets.length), 'text-slate-900')}
+              {metricCard('Unread alerts', String(unreadNotifications.length), 'text-[#0077B6]')}
+            </div>
+
+            <div className="mt-6 space-y-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex w-full items-center justify-between rounded-[22px] px-4 py-3.5 text-left text-sm font-bold transition ${activeTab === item.id ? 'bg-[#0077B6] text-white shadow-[0_14px_30px_rgba(0,119,182,0.18)]' : 'bg-slate-50/85 text-slate-700 hover:bg-slate-100'}`}
+                  >
+                    <span className="inline-flex items-center gap-3">
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Member profile</div>
+              <div className="mt-3 text-sm font-black text-slate-900">{user?.email || 'Passenger account'}</div>
+              <button onClick={() => setActiveTab('profile')} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-[#0077B6] transition hover:text-[#005F8E]">
+                Open profile
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <main className="min-w-0">{renderContent()}</main>
+      </div>
+
+      {viewTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setViewTicket(null)}>
+          <div className="w-full max-w-md overflow-hidden rounded-[32px] bg-white shadow-[0_30px_80px_rgba(15,23,42,0.35)]" onClick={(event) => event.stopPropagation()}>
+            <div className="bg-[linear-gradient(135deg,#031b34_0%,#0077B6_58%,#6ec5f0_100%)] px-6 pb-8 pt-6 text-white">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100">Boarding pass</div>
+                  <div className="mt-4"><RouteLine from={viewTicket.fromStop} to={viewTicket.toStop} prominent={true} light={true} /></div>
+                  <p className="mt-3 text-sm text-sky-100">{formatDate(viewTicket.scheduleDate)} · {formatTime(viewTicket.departureTime)}</p>
+                </div>
+                <button onClick={() => setViewTicket(null)} className="rounded-full bg-white/15 p-2 transition hover:bg-white/25">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-5 px-6 py-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TicketFact label="Passenger" value={user?.name || 'Commuter'} />
+                <TicketFact label="Seat" value={viewTicket.seatNumber} />
+                <TicketFact label="Bus" value={viewTicket.busPlate} />
+                <TicketFact label="Reference" value={viewTicket.bookingRef} mono={true} />
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-center">
+                <div className="mx-auto inline-flex rounded-3xl bg-white p-4 shadow-sm">
+                  <QRCodeSVG value={viewTicket.bookingRef || viewTicket.id} size={200} level="H" includeMargin={true} />
+                </div>
+                <p className="mt-4 text-sm font-semibold text-slate-500">Show this QR code to the driver when boarding.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TicketFact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</div>
+      <div className={`mt-2 text-sm font-black text-slate-900 ${mono ? 'font-mono' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+function QrPreview({ value }: { value: string }) {
+  return (
+    <div className="rounded-[18px] bg-white p-2 shadow-[0_12px_24px_rgba(15,23,42,0.08)]">
+      <QRCodeSVG value={value} size={48} level="H" includeMargin={false} />
+    </div>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#0077B6]">{eyebrow}</div>
+      <h2 className="mt-2 text-2xl font-black text-slate-950 lg:text-[30px] lg:leading-[1.1]">{title}</h2>
+      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function RouteLine({
+  from,
+  to,
+  prominent = false,
+  light = false,
+}: {
+  from: string;
+  to: string;
+  prominent?: boolean;
+  light?: boolean;
+}) {
+  const textClassName = light ? 'text-white' : 'text-slate-950';
+  const subClassName = light ? 'text-sky-100/90' : 'text-slate-400';
+
+  return (
+    <div className={`flex items-center gap-3 ${prominent ? 'text-xl sm:text-2xl' : 'text-base sm:text-lg'}`}>
+      <span className={`font-black ${textClassName}`}>{from}</span>
+      <span className={`inline-flex items-center gap-2 ${subClassName}`}>
+        <span className={`h-2.5 w-2.5 rounded-full ${light ? 'bg-white/75' : 'bg-[#0077B6]'}`} />
+        <ArrowRight className="h-4 w-4" />
+        <span className={`h-2.5 w-2.5 rounded-full ${light ? 'bg-white/75' : 'bg-slate-300'}`} />
+      </span>
+      <span className={`font-black ${textClassName}`}>{to}</span>
+    </div>
+  );
+}
+
+function EmptyPanel({
+  icon: Icon,
+  title,
+  description,
+  spinning = false,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  spinning?: boolean;
+}) {
+  return (
+    <div className={`${cardClassName} p-10 text-center`}>
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#0077B6]/10 text-[#0077B6]">
+        <Icon className={`h-7 w-7 ${spinning ? 'animate-spin' : ''}`} />
+      </div>
+      <h3 className="mt-5 text-2xl font-black text-slate-900">{title}</h3>
+      <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function ShortcutCard({
+  icon: Icon,
+  title,
+  description,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} className="rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-5 text-left transition hover:border-[#0077B6]/20 hover:bg-[#0077B6]/5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-white text-[#0077B6] shadow-sm">
+          <Icon className="h-5 w-5" />
+        </div>
+        <ArrowRight className="h-4 w-4 text-slate-400" />
+      </div>
+      <div className="mt-4 text-lg font-black text-slate-900">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </button>
+  );
+}
+
+function ContactCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/70 p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">{label}</div>
+      <div className="mt-2 text-sm font-black text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function SidebarMiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] bg-white/12 px-4 py-3 backdrop-blur-sm">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-50/80">{label}</div>
+      <div className="mt-2 text-2xl font-black text-white">{value}</div>
     </div>
   );
 }

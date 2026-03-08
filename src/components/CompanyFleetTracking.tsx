@@ -242,12 +242,12 @@ export default function CompanyFleetTracking({ token, activeBuses }: CompanyFlee
 
     socket.on('disconnect', () => {
       console.log('Fleet tracking: Socket.IO disconnected');
-      setConnectionStatus('disconnected');
+      setConnectionStatus('connecting');
     });
 
     socket.on('connect_error', (err) => {
       console.error('Fleet tracking: Socket.IO connection error:', err);
-      setConnectionStatus('disconnected');
+      setConnectionStatus('connecting');
     });
 
     // Listen for location updates from any bus

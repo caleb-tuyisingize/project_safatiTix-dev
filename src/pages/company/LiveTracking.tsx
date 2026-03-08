@@ -120,12 +120,12 @@ export default function LiveTracking() {
           id: loc.bus.id,
           plateNumber: loc.bus.plateNumber,
           model: loc.bus.model,
-          driverName: loc.driver.name,
-          currentRoute: 'On Route', // You can add route info later
+          driverName: loc.driver?.name || 'Driver unavailable',
+          currentRoute: loc.route?.from && loc.route?.to ? `${loc.route.from} → ${loc.route.to}` : 'On Route',
           status: loc.trip_status === 'in_progress' ? 'active' : 'idle',
           latitude: loc.location.latitude,
           longitude: loc.location.longitude,
-          speed: loc.location.speed,
+          speed: loc.location.speed || 0,
           lastUpdate: loc.updated_at,
           passengers: 0, // You can fetch this from tickets API if needed
           capacity: loc.bus.capacity,

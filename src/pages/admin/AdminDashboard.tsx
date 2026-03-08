@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   LayoutDashboard, Users, Building2, Bus, Ticket, MapPin, Settings,
   Bell, Search, ChevronDown, Menu, X, Plus, Edit2, Trash2, Eye,
@@ -14,6 +14,8 @@ import {
 } from 'recharts';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { DEFAULT_PLAN_PERMISSIONS } from '../../utils/subscriptionPlans';
+import AdminNotificationBell from '../../components/AdminNotificationBell';
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // ==================== BRAND COLORS ====================
@@ -75,11 +77,11 @@ const fmtCurrency = (v: number) =>
   new Intl.NumberFormat('rw-RW', { style: 'currency', currency: 'RWF', maximumFractionDigits: 0 }).format(v);
 
 const fmtDate = (d: string) => {
-  if (!d) return '—';
+  if (!d) return '�';
   // Strip time portion if present (handles both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ss.sssZ")
   const datePart = d.slice(0, 10);
   const dt = new Date(datePart + 'T00:00:00');
-  if (isNaN(dt.getTime())) return '—';
+  if (isNaN(dt.getTime())) return '�';
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
@@ -112,6 +114,9 @@ export default function AdminDashboard() {
   const [recentTickets, setRecentTickets] = useState<any[]>([]);
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [subscriptionData, setSubscriptionData] = useState<any[]>([]);
+  const [pendingVerificationCount, setPendingVerificationCount] = useState(0);
+  const [failedEndpoints, setFailedEndpoints] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Fetch data on mount
   useEffect(() => {
@@ -121,6 +126,7 @@ export default function AdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const token = localStorage.getItem('token');
       
       if (!token) {
@@ -144,19 +150,39 @@ export default function AdminDashboard() {
         axios.get(`${API_BASE_URL}/admin/buses`, config),
         axios.get(`${API_BASE_URL}/admin/tickets?limit=100`, config),
         axios.get(`${API_BASE_URL}/admin/revenue`, config),
+        axios.get(`${API_BASE_URL}/admin/company-verifications`, config),
       ]);
 
       // Extract successful results
-      const [statsRes, companiesRes, usersRes, busesRes, ticketsRes, revenueRes] = results.map((result, index) => {
+      const endpointNames = ['stats', 'companies', 'users', 'buses', 'tickets', 'revenue', 'company-verifications'];
+      const rejectedResults = results.flatMap((result, index) => result.status === 'rejected'
+        ? [{ endpoint: endpointNames[index], error: result.reason }]
+        : []);
+      const [statsRes, companiesRes, usersRes, busesRes, ticketsRes, revenueRes, companyVerificationsRes] = results.map((result, index) => {
         if (result.status === 'fulfilled') {
           return result.value;
         } else {
-          const endpoints = ['stats', 'companies', 'users', 'buses', 'tickets', 'revenue'];
-          console.error(`Failed to fetch ${endpoints[index]}:`, result.reason.message);
+          console.error(`Failed to fetch ${endpointNames[index]}:`, result.reason.message);
           console.error('Error details:', result.reason.response?.data);
           return null;
         }
       });
+
+      setFailedEndpoints(rejectedResults.map((item) => item.endpoint));
+
+      if (rejectedResults.length > 0) {
+        const unauthorizedFailures = rejectedResults.filter((item) => [401, 403].includes(item.error?.response?.status));
+        if (unauthorizedFailures.length === rejectedResults.length) {
+          const hasForbidden = unauthorizedFailures.some((item) => item.error?.response?.status === 403);
+          const message = hasForbidden
+            ? 'Your account does not have admin access, or your session has expired.'
+            : 'Your admin session has expired. Please sign in again.';
+          setLoadError(message);
+          setLoading(false);
+          window.setTimeout(() => navigate('/app/login'), 1200);
+          return;
+        }
+      }
 
       console.log('Stats response:', statsRes?.data);
       console.log('Companies response:', companiesRes?.data);
@@ -195,17 +221,17 @@ export default function AdminDashboard() {
       // Set companies with enhanced data
       const companiesData = (companiesRes?.data.companies) || [];
       const enrichedCompanies = companiesData.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        email: c.email,
-        phone: c.phone,
-        plan: c.subscriptionPlan || 'Free Trial',
+        ...c,
+        plan: c.plan || c.subscriptionPlan || 'Starter',
         status: c.status === 'approved' ? 'active' : c.status,
-        subscriptionEnd: c.updatedAt,
+        nextPayment: c.nextPayment || c.subscriptionEnd || c.updatedAt || null,
         buses:   c.busCount   ?? busesByCompanyId[c.id] ?? 0,
         drivers: c.driverCount ?? 0,
         tickets: ticketsByCompanyId[c.id]?.count   || 0,
         revenue: ticketsByCompanyId[c.id]?.revenue || 0,
+        users: c.users || [],
+        usersCount: c.usersCount ?? c.users?.length ?? 0,
+        planPermissions: c.planPermissions || DEFAULT_PLAN_PERMISSIONS,
       }));
 
       // Sort by revenue descending for top companies display
@@ -213,7 +239,7 @@ export default function AdminDashboard() {
 
       // Calculate subscription data
       const planCounts = companiesData.reduce((acc: any, c: any) => {
-        const plan = c.subscriptionPlan || 'Free Trial';
+        const plan = c.plan || c.subscriptionPlan || 'Starter';
         acc[plan] = (acc[plan] || 0) + 1;
         return acc;
       }, {});
@@ -222,7 +248,6 @@ export default function AdminDashboard() {
         { name: 'Starter', value: planCounts['Starter'] || 0, color: COLORS.primary },
         { name: 'Growth', value: planCounts['Growth'] || 0, color: COLORS.secondary },
         { name: 'Enterprise', value: planCounts['Enterprise'] || 0, color: COLORS.success },
-        { name: 'Free Trial', value: planCounts['Free Trial'] || 0, color: '#00BFFF' },
       ]);
 
       // Set users
@@ -243,6 +268,11 @@ export default function AdminDashboard() {
         setRevenueData(revenueRes.data.revenueData || []);
       }
 
+      if (companyVerificationsRes) {
+        const verificationCompanies = companyVerificationsRes.data.companies || [];
+        setPendingVerificationCount(verificationCompanies.filter((company: any) => company.account_status === 'pending').length);
+      }
+
       setLoading(false);
     } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
@@ -255,6 +285,7 @@ export default function AdminDashboard() {
       // Show error to user
       alert(`Failed to load dashboard data: ${error.message}\n\nPlease check the console for details.`);
       
+      setLoadError(error.message || 'Failed to load admin dashboard');
       setLoading(false);
     }
   };
@@ -263,7 +294,8 @@ export default function AdminDashboard() {
     { id: 'dashboard',       icon: LayoutDashboard, label: 'Dashboard',       badge: null },
     { id: 'users',           icon: Users,           label: 'User Management', badge: users.length > 0 ? users.length.toLocaleString() : null },
     { id: 'companies',       icon: Building2,       label: 'Companies',       badge: companies.length > 0 ? companies.length.toString() : null },
-    { id: 'buses',           icon: Bus,             label: 'Buses & Routes',  badge: buses.length > 0 ? buses.length.toString() : null },
+    { id: 'company-verifications', icon: ShieldCheck, label: 'Company Verifications', badge: pendingVerificationCount > 0 ? pendingVerificationCount.toString() : null, href: '/dashboard/admin/company-verifications' },
+    { id: 'buses',           icon: Bus,             label: 'Buses',  badge: buses.length > 0 ? buses.length.toString() : null },
     { id: 'rura-routes',     icon: Navigation,      label: 'RURA Routes',     badge: null },
     { id: 'tickets',         icon: Ticket,          label: 'Tickets',         badge: dashboardStats.ticketsToday > 0 ? dashboardStats.ticketsToday.toString() : null },
     { id: 'tracking',        icon: MapPin,          label: 'Live Tracking',   badge: null },
@@ -316,7 +348,14 @@ export default function AdminDashboard() {
           {modules.map(module => (
             <button
               key={module.id}
-              onClick={() => { setActiveModule(module.id); setMobileMenuOpen(false); }}
+              onClick={() => {
+                if ('href' in module && module.href) {
+                  navigate(module.href);
+                } else {
+                  setActiveModule(module.id);
+                }
+                setMobileMenuOpen(false);
+              }}
               className={`
                 w-full flex items-center gap-3 px-3 py-3 rounded-xl
                 transition-all duration-200 font-semibold text-sm
@@ -383,10 +422,7 @@ export default function AdminDashboard() {
 
             {/* Right Section */}
             <div className="flex items-center gap-3">
-              <button className="relative w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-                <Bell className="w-5 h-5 text-gray-600" />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#E63946] rounded-full"></span>
-              </button>
+              <AdminNotificationBell />
               <div className="flex items-center gap-3 pl-3 border-l border-gray-200">
                 <div className="hidden md:block text-right">
                   <div className="text-sm font-semibold text-gray-900">Admin User</div>
@@ -409,10 +445,12 @@ export default function AdminDashboard() {
               recentTickets={recentTickets}
               revenueData={revenueData}
               subscriptionData={subscriptionData}
+              failedEndpoints={failedEndpoints}
+              loadError={loadError}
             />
           )}
-          {activeModule === 'users' && <UserManagement users={users} tickets={recentTickets} />}
-          {activeModule === 'companies' && <CompanyManagement companies={companies} />}
+          {activeModule === 'users' && <UserManagement users={users} tickets={recentTickets} onUsersChange={setUsers} />}
+          {activeModule === 'companies' && <CompanyManagement companies={companies} onCompaniesChange={setCompanies} onUsersChange={setUsers} />}
           {activeModule === 'buses' && <BusManagement buses={buses} />}
           {activeModule === 'rura-routes' && <RuraRoutesManagement />}
           {activeModule === 'tickets' && <TicketManagement tickets={recentTickets} />}
@@ -443,11 +481,39 @@ interface DashboardViewProps {
   recentTickets: any[];
   revenueData: any[];
   subscriptionData: any[];
+  failedEndpoints: string[];
+  loadError: string | null;
 }
 
-function DashboardView({ stats, companies, recentTickets, revenueData, subscriptionData }: DashboardViewProps) {
+function DashboardView({ stats, companies, recentTickets, revenueData, subscriptionData, failedEndpoints, loadError }: DashboardViewProps) {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {failedEndpoints.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div>
+              <div className="font-bold">Some admin dashboard data failed to load</div>
+              <div className="text-sm">
+                Failed endpoints: {failedEndpoints.join(', ')}.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div>
+              <div className="font-bold">Admin dashboard access issue</div>
+              <div className="text-sm">{loadError}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -595,7 +661,7 @@ function DashboardView({ stats, companies, recentTickets, revenueData, subscript
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-black font-['Montserrat'] text-[#2B2D42]">Recent Tickets</h3>
-            <button className="text-[#0077B6] font-bold text-sm hover:underline">View All →</button>
+            <button className="text-[#0077B6] font-bold text-sm hover:underline">View All ?</button>
           </div>
           {recentTickets.length > 0 ? (
             <div className="space-y-3">
@@ -634,7 +700,7 @@ function DashboardView({ stats, companies, recentTickets, revenueData, subscript
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-black font-['Montserrat'] text-[#2B2D42]">Top Companies</h3>
-            <button className="text-[#0077B6] font-bold text-sm hover:underline">View All →</button>
+            <button className="text-[#0077B6] font-bold text-sm hover:underline">View All ?</button>
           </div>
           {companies.length > 0 ? (
             <div className="space-y-3">
@@ -645,7 +711,7 @@ function DashboardView({ stats, companies, recentTickets, revenueData, subscript
                   </div>
                   <div className="flex-1">
                     <div className="font-bold text-sm text-gray-900">{company.name}</div>
-                    <div className="text-xs text-gray-500">{company.buses || 0} buses • {company.tickets || 0} tickets</div>
+                    <div className="text-xs text-gray-500">{company.buses || 0} buses � {company.tickets || 0} tickets</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-bold text-[#27AE60]">
@@ -706,17 +772,31 @@ function StatCard({ icon: Icon, label, value, change, trend, color }: StatCardPr
 interface UserManagementProps {
   users: any[];
   tickets: any[];
+  onUsersChange: React.Dispatch<React.SetStateAction<any[]>>;
 }
 
-function UserManagement({ users, tickets }: UserManagementProps) {
+function UserManagement({ users, tickets, onUsersChange }: UserManagementProps) {
   const [filter, setFilter] = useState('all');
+  const [openActionUserId, setOpenActionUserId] = useState<string | number | null>(null);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<any | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    role: 'commuter',
+    status: 'active',
+  });
 
-  // Debug: Log user data to see what's being received
-  console.log('Users data in UserManagement:', users.slice(0, 2)); // Log first 2 users for inspection
-  if (users.length > 0) {
-    console.log('Sample user object keys:', Object.keys(users[0]));
-    console.log('Sample user registered field:', users[0].registered);
-  }
+  useEffect(() => {
+    if (!feedbackMessage) return undefined;
+
+    const timeoutId = window.setTimeout(() => setFeedbackMessage(null), 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [feedbackMessage]);
 
   // Calculate tickets per user (by email matching)
   const ticketsByUserEmail = tickets.reduce((acc: any, ticket: any) => {
@@ -767,6 +847,130 @@ function UserManagement({ users, tickets }: UserManagementProps) {
     return true;
   });
 
+  const getAuthConfig = () => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      throw new Error('Your admin session has expired. Please sign in again.');
+    }
+
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+  };
+
+  const openEditModal = (user: any) => {
+    setOpenActionUserId(null);
+    setActionError(null);
+    setEditingUser(user);
+    setEditForm({
+      name: user.name || '',
+      email: user.email || '',
+      role: user.role || 'commuter',
+      status: user.status === 'deleted' ? 'inactive' : (user.status || 'active'),
+    });
+  };
+
+  const closeEditModal = () => {
+    if (isSaving) return;
+    setEditingUser(null);
+    setActionError(null);
+  };
+
+  const openDeleteModal = (user: any) => {
+    setOpenActionUserId(null);
+    setActionError(null);
+    setDeleteCandidate(user);
+  };
+
+  const closeDeleteModal = () => {
+    if (isDeleting) return;
+    setDeleteCandidate(null);
+    setActionError(null);
+  };
+
+  const handleSaveUser = async () => {
+    if (!editingUser) return;
+
+    const payload = {
+      name: editForm.name.trim(),
+      email: editForm.email.trim().toLowerCase(),
+      role: editForm.role,
+      status: editForm.status,
+    };
+
+    if (!payload.name) {
+      setActionError('Name is required.');
+      return;
+    }
+
+    if (!payload.email) {
+      setActionError('Email is required.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setActionError(null);
+
+      const response = await axios.put(
+        `${API_BASE_URL}/admin/users/${editingUser.id}`,
+        payload,
+        getAuthConfig()
+      );
+
+      const updatedUser = response.data.user;
+
+      onUsersChange((currentUsers) => currentUsers.map((user) => (
+        user.id === updatedUser.id ? updatedUser : user
+      )));
+
+      setEditingUser(null);
+      setFeedbackMessage('User updated successfully.');
+    } catch (error: any) {
+      setActionError(error.response?.data?.error || error.message || 'Failed to update user.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteCandidate) return;
+
+    try {
+      setIsDeleting(true);
+      setActionError(null);
+
+      await axios.delete(
+        `${API_BASE_URL}/admin/users/${deleteCandidate.id}`,
+        getAuthConfig()
+      );
+
+      onUsersChange((currentUsers) => currentUsers.map((user) => (
+        user.id === deleteCandidate.id
+          ? { ...user, status: 'deleted', accountStatus: 'deleted' }
+          : user
+      )));
+
+      setDeleteCandidate(null);
+      setFeedbackMessage('User deleted successfully.');
+    } catch (error: any) {
+      setActionError(error.response?.data?.error || error.message || 'Failed to delete user.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const getStatusClasses = (status: string) => {
+    if (status === 'active') return 'bg-green-100 text-green-700';
+    if (status === 'inactive') return 'bg-yellow-100 text-yellow-700';
+    return 'bg-gray-200 text-gray-700';
+  };
+
+  const formatRoleLabel = (role: string) => role.replace(/_/g, ' ');
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -779,6 +983,24 @@ function UserManagement({ users, tickets }: UserManagementProps) {
           Add User
         </button>
       </div>
+
+      {feedbackMessage && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-green-900">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="text-sm font-semibold">{feedbackMessage}</div>
+          </div>
+        </div>
+      )}
+
+      {actionError && !editingUser && !deleteCandidate && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="text-sm font-semibold">{actionError}</div>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-xl p-4 border border-gray-200 flex items-center gap-4 flex-wrap">
@@ -820,11 +1042,11 @@ function UserManagement({ users, tickets }: UserManagementProps) {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredUsers.map(user => (
-                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={user.id} className={`transition-colors ${user.status === 'deleted' ? 'bg-gray-50/80' : 'hover:bg-gray-50'}`}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-gradient-to-br from-[#0077B6] to-[#005F8E] rounded-full flex items-center justify-center text-white font-bold">
-                        {user.name.split(' ').map((n: string) => n[0]).join('')}
+                        {(user.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                       </div>
                       <div>
                         <div className="font-semibold text-gray-900">{user.name}</div>
@@ -834,13 +1056,11 @@ function UserManagement({ users, tickets }: UserManagementProps) {
                   </td>
                   <td className="px-6 py-4">
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 capitalize">
-                      {user.role}
+                      {formatRoleLabel(user.role)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusClasses(user.status)}`}>
                       {user.status}
                     </span>
                   </td>
@@ -879,16 +1099,34 @@ function UserManagement({ users, tickets }: UserManagementProps) {
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                        <Eye className="w-4 h-4 text-gray-600" />
+                    <div className="relative flex items-center justify-end">
+                      <button
+                        onClick={() => setOpenActionUserId(openActionUserId === user.id ? null : user.id)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        aria-label={`Open actions for ${user.name}`}
+                      >
+                        <MoreVertical className="w-4 h-4 text-gray-600" />
                       </button>
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                        <Edit2 className="w-4 h-4 text-gray-600" />
-                      </button>
-                      <button className="p-2 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-red-600" />
-                      </button>
+
+                      {openActionUserId === user.id && (
+                        <div className="absolute right-0 top-11 z-20 min-w-[11rem] rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
+                          <button
+                            onClick={() => openEditModal(user)}
+                            className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                          >
+                            <Edit2 className="h-4 w-4 text-[#0077B6]" />
+                            Edit User
+                          </button>
+                          <button
+                            onClick={() => openDeleteModal(user)}
+                            disabled={user.status === 'deleted'}
+                            className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm font-semibold text-[#E63946] transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-white"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete User
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -897,6 +1135,145 @@ function UserManagement({ users, tickets }: UserManagementProps) {
           </table>
         </div>
       </div>
+
+      {editingUser && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+              <div>
+                <h2 className="text-2xl font-black text-[#2B2D42]">Edit User</h2>
+                <p className="mt-1 text-sm text-gray-500">Update the selected user account details.</p>
+              </div>
+              <button onClick={closeEditModal} className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-6">
+              {actionError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                  {actionError}
+                </div>
+              )}
+
+              <div className="grid gap-5 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Full Name</div>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                    placeholder="Enter full name"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Email Address</div>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                    placeholder="Enter email address"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Role</div>
+                  <select
+                    value={editForm.role}
+                    onChange={(event) => setEditForm((current) => ({ ...current, role: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="commuter">Commuter</option>
+                    <option value="driver">Driver</option>
+                    <option value="company_admin">Company Admin</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Status</div>
+                  <select
+                    value={editForm.status}
+                    onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5">
+              <button
+                onClick={closeEditModal}
+                disabled={isSaving}
+                className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveUser}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0077B6] to-[#005F8E] px-5 py-3 text-sm font-bold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteCandidate && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl">
+            <div className="border-b border-gray-200 px-6 py-5">
+              <h2 className="text-2xl font-black text-[#2B2D42]">Delete User</h2>
+              <p className="mt-1 text-sm text-gray-500">This will deactivate the account and mark it as deleted.</p>
+            </div>
+
+            <div className="space-y-4 px-6 py-6">
+              {actionError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                  {actionError}
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                <div className="text-sm text-gray-500">User</div>
+                <div className="mt-1 text-base font-bold text-[#2B2D42]">{deleteCandidate.name}</div>
+                <div className="text-sm text-gray-600">{deleteCandidate.email}</div>
+              </div>
+
+              <p className="text-sm text-gray-600">
+                Deleted users remain in the system for audit history, but they can no longer access their account.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5">
+              <button
+                onClick={closeDeleteModal}
+                disabled={isDeleting}
+                className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#E63946] px-5 py-3 text-sm font-bold text-white transition-all hover:bg-[#d62f3d] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Delete User
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -904,29 +1281,76 @@ function UserManagement({ users, tickets }: UserManagementProps) {
 // ==================== COMPANY MANAGEMENT ====================
 interface CompanyManagementProps {
   companies: any[];
+  onCompaniesChange: React.Dispatch<React.SetStateAction<any[]>>;
+  onUsersChange: React.Dispatch<React.SetStateAction<any[]>>;
 }
 
-function CompanyManagement({ companies }: CompanyManagementProps) {
+function CompanyManagement({ companies, onCompaniesChange, onUsersChange }: CompanyManagementProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [planFilter, setPlanFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [selectedCompany, setSelectedCompany] = useState<any>(null);
+  const [editingCompany, setEditingCompany] = useState<any | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: string; company: any } | null>(null);
+  const [memberActionUserId, setMemberActionUserId] = useState<string | number | null>(null);
+  const [editingCompanyUser, setEditingCompanyUser] = useState<any | null>(null);
+  const [companyUserToDelete, setCompanyUserToDelete] = useState<any | null>(null);
+  const [companyActionError, setCompanyActionError] = useState<string | null>(null);
+  const [companyFeedback, setCompanyFeedback] = useState<string | null>(null);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
+  const [memberFeedback, setMemberFeedback] = useState<string | null>(null);
+  const [isSavingMember, setIsSavingMember] = useState(false);
+  const [isDeletingMember, setIsDeletingMember] = useState(false);
+  const [companyEditForm, setCompanyEditForm] = useState({
+    status: 'active',
+    plan: 'Starter',
+    nextPayment: '',
+  });
+  const [memberEditForm, setMemberEditForm] = useState({
+    name: '',
+    email: '',
+    role: 'company_admin',
+    status: 'active',
+  });
 
   // Extended company data with more fields
-  const companiesData = companies.map(c => ({
+  const companiesData = useMemo(() => companies.map(c => ({
     ...c,
     email: c.email || '',
     phone: c.phone || '',
     registeredOn: c.createdAt || '',
     trialStart: c.plan === 'Free Trial' ? c.createdAt : null,
     trialEnd: c.plan === 'Free Trial' && c.createdAt ? new Date(new Date(c.createdAt).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString() : null,
-    nextPayment: c.plan !== 'Free Trial' && c.subscriptionEnd ? c.subscriptionEnd : null,
+    nextPayment: c.nextPayment || c.subscriptionEnd || null,
     drivers: c.drivers ?? 0,
-  }));
+  })), [companies]);
+
+  useEffect(() => {
+    if (!selectedCompany) return;
+
+    const refreshedCompany = companiesData.find((company) => company.id === selectedCompany.id);
+    if (refreshedCompany) {
+      setSelectedCompany(refreshedCompany);
+    }
+  }, [companiesData, selectedCompany]);
+
+  useEffect(() => {
+    if (!companyFeedback) return undefined;
+
+    const timeoutId = window.setTimeout(() => setCompanyFeedback(null), 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [companyFeedback]);
+
+  useEffect(() => {
+    if (!memberFeedback) return undefined;
+
+    const timeoutId = window.setTimeout(() => setMemberFeedback(null), 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [memberFeedback]);
 
   // Filter and sort
   const filteredCompanies = companiesData
@@ -950,8 +1374,9 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
   const getStatusBadge = (status: string) => {
     const colors = {
       active: 'bg-[#27AE60]/10 text-[#27AE60] border border-[#27AE60]/20',
+      pending: 'bg-[#0077B6]/10 text-[#0077B6] border border-[#0077B6]/20',
       suspended: 'bg-[#F4A261]/10 text-[#F4A261] border border-[#F4A261]/20',
-      blocked: 'bg-[#E63946]/10 text-[#E63946] border border-[#E63946]/20'
+      rejected: 'bg-[#E63946]/10 text-[#E63946] border border-[#E63946]/20'
     };
     return colors[status as keyof typeof colors] || colors.active;
   };
@@ -972,6 +1397,233 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
     const now = new Date();
     const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     return diff;
+  };
+
+  const formatRoleLabel = (role: string) => role.replace(/_/g, ' ');
+
+  const getUserStatusBadge = (status: string) => {
+    if (status === 'active') return 'bg-green-100 text-green-700';
+    if (status === 'inactive') return 'bg-yellow-100 text-yellow-700';
+    return 'bg-gray-200 text-gray-700';
+  };
+
+  const getAuthConfig = () => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      throw new Error('Your admin session has expired. Please sign in again.');
+    }
+
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+  };
+
+  const normalizeCompanyForState = (company: any) => ({
+    ...company,
+    status: company.status === 'approved' ? 'active' : company.status,
+    nextPayment: company.nextPayment || company.subscriptionEnd || null,
+  });
+
+  const syncUpdatedCompany = (updatedCompany: any) => {
+    const normalizedCompany = normalizeCompanyForState(updatedCompany);
+
+    onCompaniesChange((currentCompanies) => currentCompanies.map((company) => (
+      company.id === normalizedCompany.id ? { ...company, ...normalizedCompany } : company
+    )));
+
+    if (Array.isArray(normalizedCompany.users) && normalizedCompany.users.length > 0) {
+      const usersById = new Map<any, any>(normalizedCompany.users.map((user: any) => [user.id, user]));
+      onUsersChange((currentUsers) => currentUsers.map((user) => {
+        const matchedUser = usersById.get(user.id);
+        return matchedUser ? { ...user, ...matchedUser } : user;
+      }));
+    }
+
+    setSelectedCompany((current: any) => current && current.id === normalizedCompany.id ? normalizedCompany : current);
+  };
+
+  const openCompanyEditModal = (company: any) => {
+    setCompanyActionError(null);
+    setEditingCompany(company);
+    setCompanyEditForm({
+      status: company.status || 'active',
+      plan: company.plan || 'Starter',
+      nextPayment: company.nextPayment ? String(company.nextPayment).slice(0, 10) : '',
+    });
+  };
+
+  const closeCompanyEditModal = () => {
+    if (isSavingCompany) return;
+    setEditingCompany(null);
+    setCompanyActionError(null);
+  };
+
+  const saveCompany = async () => {
+    if (!editingCompany) return;
+
+    if (!companyEditForm.nextPayment) {
+      setCompanyActionError('Next payment date is required.');
+      return;
+    }
+
+    try {
+      setIsSavingCompany(true);
+      setCompanyActionError(null);
+
+      const response = await axios.put(
+        `${API_BASE_URL}/admin/companies/${editingCompany.id}`,
+        {
+          status: companyEditForm.status,
+          plan: companyEditForm.plan,
+          nextPayment: companyEditForm.nextPayment,
+        },
+        getAuthConfig()
+      );
+
+      syncUpdatedCompany(response.data.company);
+      setEditingCompany(null);
+      setCompanyFeedback('Company updated successfully.');
+    } catch (error: any) {
+      setCompanyActionError(error.response?.data?.error || error.message || 'Failed to update company.');
+    } finally {
+      setIsSavingCompany(false);
+    }
+  };
+
+  const syncCompanyUser = (updatedUser: any) => {
+    onUsersChange((currentUsers) => currentUsers.map((user) => (
+      user.id === updatedUser.id ? updatedUser : user
+    )));
+
+    onCompaniesChange((currentCompanies) => currentCompanies.map((company) => {
+      if (company.id !== updatedUser.companyId) {
+        return company;
+      }
+
+      const nextUsers = Array.isArray(company.users)
+        ? company.users.map((user: any) => (user.id === updatedUser.id ? { ...user, ...updatedUser } : user))
+        : [];
+
+      return {
+        ...company,
+        users: nextUsers,
+        usersCount: nextUsers.length,
+      };
+    }));
+  };
+
+  const syncDeletedCompanyUser = (deletedUser: any) => {
+    const deletedPayload = { ...deletedUser, status: 'deleted', accountStatus: 'deleted' };
+
+    onUsersChange((currentUsers) => currentUsers.map((user) => (
+      user.id === deletedUser.id ? { ...user, ...deletedPayload } : user
+    )));
+
+    onCompaniesChange((currentCompanies) => currentCompanies.map((company) => {
+      if (company.id !== deletedUser.companyId) {
+        return company;
+      }
+
+      const nextUsers = Array.isArray(company.users)
+        ? company.users.map((user: any) => (user.id === deletedUser.id ? { ...user, ...deletedPayload } : user))
+        : [];
+
+      return {
+        ...company,
+        users: nextUsers,
+        usersCount: nextUsers.length,
+      };
+    }));
+  };
+
+  const openMemberEditModal = (user: any) => {
+    setMemberActionUserId(null);
+    setMemberActionError(null);
+    setEditingCompanyUser(user);
+    setMemberEditForm({
+      name: user.name || '',
+      email: user.email || '',
+      role: user.role || 'company_admin',
+      status: user.status === 'deleted' ? 'inactive' : (user.status || 'active'),
+    });
+  };
+
+  const openMemberDeleteModal = (user: any) => {
+    setMemberActionUserId(null);
+    setMemberActionError(null);
+    setCompanyUserToDelete(user);
+  };
+
+  const closeMemberModals = () => {
+    if (isSavingMember || isDeletingMember) return;
+    setEditingCompanyUser(null);
+    setCompanyUserToDelete(null);
+    setMemberActionError(null);
+  };
+
+  const saveCompanyUser = async () => {
+    if (!editingCompanyUser) return;
+
+    const payload = {
+      name: memberEditForm.name.trim(),
+      email: memberEditForm.email.trim().toLowerCase(),
+      role: memberEditForm.role,
+      status: memberEditForm.status,
+    };
+
+    if (!payload.name) {
+      setMemberActionError('Name is required.');
+      return;
+    }
+
+    if (!payload.email) {
+      setMemberActionError('Email is required.');
+      return;
+    }
+
+    try {
+      setIsSavingMember(true);
+      setMemberActionError(null);
+
+      const response = await axios.put(
+        `${API_BASE_URL}/admin/users/${editingCompanyUser.id}`,
+        payload,
+        getAuthConfig()
+      );
+
+      syncCompanyUser(response.data.user);
+      setEditingCompanyUser(null);
+      setMemberFeedback('Company user updated successfully.');
+    } catch (error: any) {
+      setMemberActionError(error.response?.data?.error || error.message || 'Failed to update company user.');
+    } finally {
+      setIsSavingMember(false);
+    }
+  };
+
+  const deleteCompanyUser = async () => {
+    if (!companyUserToDelete) return;
+
+    try {
+      setIsDeletingMember(true);
+      setMemberActionError(null);
+
+      await axios.delete(
+        `${API_BASE_URL}/admin/users/${companyUserToDelete.id}`,
+        getAuthConfig()
+      );
+
+      syncDeletedCompanyUser(companyUserToDelete);
+      setCompanyUserToDelete(null);
+      setMemberFeedback('Company user deleted successfully.');
+    } catch (error: any) {
+      setMemberActionError(error.response?.data?.error || error.message || 'Failed to delete company user.');
+    } finally {
+      setIsDeletingMember(false);
+    }
   };
 
   const handleAction = (action: string, company: any) => {
@@ -1003,6 +1655,24 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
         </button>
       </div>
 
+      {memberFeedback && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-green-900">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="text-sm font-semibold">{memberFeedback}</div>
+          </div>
+        </div>
+      )}
+
+      {companyFeedback && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-green-900">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="text-sm font-semibold">{companyFeedback}</div>
+          </div>
+        </div>
+      )}
+
       {/* Search & Filters */}
       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
         <div className="grid lg:grid-cols-4 gap-4">
@@ -1028,9 +1698,10 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0077B6] focus:border-transparent outline-none transition-all font-semibold"
             >
               <option value="all">All Status</option>
-              <option value="active">✅ Active</option>
-              <option value="suspended">⚠️ Suspended</option>
-              <option value="blocked">❌ Blocked</option>
+              <option value="active">Active</option>
+              <option value="pending">Pending</option>
+              <option value="suspended">Suspended</option>
+              <option value="rejected">Rejected</option>
             </select>
           </div>
 
@@ -1042,7 +1713,7 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0077B6] focus:border-transparent outline-none transition-all font-semibold"
             >
               <option value="all">All Plans</option>
-              <option value="Free Trial">💎 Free Trial</option>
+              <option value="Free Trial">?? Free Trial</option>
               <option value="Starter">Starter</option>
               <option value="Growth">Growth</option>
               <option value="Enterprise">Enterprise</option>
@@ -1114,7 +1785,7 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                         </div>
                         <div>
                           <div className="font-bold text-gray-900">{company.name}</div>
-                          <div className="text-xs text-gray-500">{company.buses} buses · {company.drivers} drivers</div>
+                          <div className="text-xs text-gray-500">{company.buses} buses � {company.drivers} drivers</div>
                         </div>
                       </div>
                     </td>
@@ -1135,9 +1806,6 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                     {/* Status */}
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${getStatusBadge(company.status)}`}>
-                        {company.status === 'active' && '✅'}
-                        {company.status === 'suspended' && '⚠️'}
-                        {company.status === 'blocked' && '❌'}
                         {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
                       </span>
                     </td>
@@ -1145,28 +1813,15 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                     {/* Plan */}
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${getPlanBadge(company.plan)}`}>
-                        {company.plan === 'Free Trial' && '💎'}
                         {company.plan}
                       </span>
                     </td>
 
                     {/* Trial/Next Payment */}
                     <td className="px-6 py-4">
-                      {company.plan === 'Free Trial' && daysLeft !== null ? (
-                        <div>
-                          <div className="text-sm font-semibold text-gray-900">{daysLeft} days left</div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                            <div
-                              className={`h-1.5 rounded-full ${daysLeft > 7 ? 'bg-[#27AE60]' : daysLeft > 3 ? 'bg-[#F4A261]' : 'bg-[#E63946]'}`}
-                              style={{ width: `${(daysLeft / 14) * 100}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-600">
-                          {company.nextPayment ? new Date(company.nextPayment).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-                        </div>
-                      )}
+                      <div className="text-sm text-gray-600">
+                        {company.nextPayment ? new Date(company.nextPayment).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                      </div>
                     </td>
 
                     {/* Actions */}
@@ -1180,35 +1835,11 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                           <Eye className="w-4 h-4 text-gray-600 group-hover:text-[#0077B6]" />
                         </button>
                         <button
-                          onClick={() => handleAction('edit', company)}
+                          onClick={() => openCompanyEditModal(company)}
                           className="p-2 hover:bg-[#0077B6]/10 rounded-lg transition-colors group"
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4 text-gray-600 group-hover:text-[#0077B6]" />
-                        </button>
-                        {company.status === 'active' ? (
-                          <button
-                            onClick={() => handleAction('suspend', company)}
-                            className="p-2 hover:bg-[#F4A261]/10 rounded-lg transition-colors group"
-                            title="Suspend"
-                          >
-                            <AlertCircle className="w-4 h-4 text-gray-600 group-hover:text-[#F4A261]" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleAction('reactivate', company)}
-                            className="p-2 hover:bg-[#27AE60]/10 rounded-lg transition-colors group"
-                            title="Reactivate"
-                          >
-                            <CheckCircle className="w-4 h-4 text-gray-600 group-hover:text-[#27AE60]" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleAction('delete', company)}
-                          className="p-2 hover:bg-[#E63946]/10 rounded-lg transition-colors group"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-[#E63946]" />
                         </button>
                       </div>
                     </td>
@@ -1233,7 +1864,6 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                   <h2 className="text-2xl font-black text-gray-900">{selectedCompany.name}</h2>
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${getStatusBadge(selectedCompany.status)}`}>
-                      {selectedCompany.status === 'active' && '✅'}
                       {selectedCompany.status.charAt(0).toUpperCase() + selectedCompany.status.slice(1)}
                     </span>
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${getPlanBadge(selectedCompany.plan)}`}>
@@ -1281,23 +1911,14 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                       <div className="text-xs text-gray-600 mb-1">Current Plan</div>
                       <div className="text-xl font-black text-gray-900">{selectedCompany.plan}</div>
                     </div>
-                    {selectedCompany.plan === 'Free Trial' ? (
-                      <>
-                        <div>
-                          <div className="text-xs text-gray-600 mb-1">Trial Started</div>
-                          <div className="font-semibold text-gray-900">{new Date(selectedCompany.trialStart).toLocaleDateString()}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-600 mb-1">Trial Ends</div>
-                          <div className="font-semibold text-[#E63946]">{new Date(selectedCompany.trialEnd).toLocaleDateString()}</div>
-                        </div>
-                      </>
-                    ) : (
-                      <div>
-                        <div className="text-xs text-gray-600 mb-1">Next Payment</div>
-                        <div className="font-semibold text-gray-900">{new Date(selectedCompany.nextPayment).toLocaleDateString()}</div>
-                      </div>
-                    )}
+                    <div>
+                      <div className="text-xs text-gray-600 mb-1">Status</div>
+                      <div className="font-semibold text-gray-900 capitalize">{selectedCompany.status}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-600 mb-1">Next Payment</div>
+                      <div className="font-semibold text-gray-900">{selectedCompany.nextPayment ? new Date(selectedCompany.nextPayment).toLocaleDateString() : 'N/A'}</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1329,40 +1950,341 @@ function CompanyManagement({ companies }: CompanyManagementProps) {
                 </div>
               </div>
 
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Company Users</h3>
+                    <p className="text-sm text-gray-500">Manage the company admin and assigned staff accounts.</p>
+                  </div>
+                  <div className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
+                    {selectedCompany.usersCount ?? selectedCompany.users?.length ?? 0} users
+                  </div>
+                </div>
+
+                {memberActionError && !editingCompanyUser && !companyUserToDelete && (
+                  <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                    {memberActionError}
+                  </div>
+                )}
+
+                {Array.isArray(selectedCompany.users) && selectedCompany.users.length > 0 ? (
+                  <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-600">User</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-600">Role</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-600">Status</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-600">Registered</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-gray-600">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {selectedCompany.users.map((user: any) => (
+                            <tr key={user.id} className={`transition-colors ${user.status === 'deleted' ? 'bg-gray-50/80' : 'hover:bg-gray-50'}`}>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#0077B6] to-[#005F8E] text-sm font-bold text-white">
+                                    {(user.name || '?').split(' ').map((part: string) => part[0]).join('').slice(0, 2)}
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-gray-900">{user.name}</div>
+                                    <div className="text-sm text-gray-500">{user.email}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-bold capitalize text-blue-700">
+                                  {formatRoleLabel(user.role)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${getUserStatusBadge(user.status)}`}>
+                                  {user.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4 text-sm text-gray-600">
+                                {user.registered ? new Date(user.registered).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="relative flex items-center justify-end">
+                                  <button
+                                    onClick={() => setMemberActionUserId(memberActionUserId === user.id ? null : user.id)}
+                                    className="rounded-lg p-2 transition-colors hover:bg-gray-100"
+                                    aria-label={`Open actions for ${user.name}`}
+                                  >
+                                    <MoreVertical className="h-4 w-4 text-gray-600" />
+                                  </button>
+
+                                  {memberActionUserId === user.id && (
+                                    <div className="absolute right-0 top-11 z-20 min-w-[11rem] rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
+                                      <button
+                                        onClick={() => openMemberEditModal(user)}
+                                        className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                                      >
+                                        <Edit2 className="h-4 w-4 text-[#0077B6]" />
+                                        Edit User
+                                      </button>
+                                      <button
+                                        onClick={() => openMemberDeleteModal(user)}
+                                        disabled={user.status === 'deleted'}
+                                        className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm font-semibold text-[#E63946] transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-white"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete User
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
+                    No users are assigned to this company yet.
+                  </div>
+                )}
+              </div>
+
               {/* Actions */}
               <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
                 <button
-                  onClick={() => handleAction('upgrade', selectedCompany)}
+                  onClick={() => { setShowDetailModal(false); openCompanyEditModal(selectedCompany); }}
                   className="flex-1 min-w-[200px] flex items-center justify-center gap-2 bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all"
                 >
-                  <Crown className="w-5 h-5" />
-                  Upgrade Plan
+                  <Edit2 className="w-5 h-5" />
+                  Edit Company Settings
                 </button>
-                {selectedCompany.status === 'active' ? (
-                  <button
-                    onClick={() => { setShowDetailModal(false); handleAction('suspend', selectedCompany); }}
-                    className="flex items-center justify-center gap-2 bg-[#F4A261] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#F4A261]/90 transition-all"
-                  >
-                    <AlertCircle className="w-5 h-5" />
-                    Suspend Account
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => { setShowDetailModal(false); handleAction('reactivate', selectedCompany); }}
-                    className="flex items-center justify-center gap-2 bg-[#27AE60] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#27AE60]/90 transition-all"
-                  >
-                    <CheckCircle className="w-5 h-5" />
-                    Reactivate
-                  </button>
-                )}
                 <button
-                  onClick={() => { setShowDetailModal(false); handleAction('delete', selectedCompany); }}
-                  className="flex items-center justify-center gap-2 bg-[#E63946] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#E63946]/90 transition-all"
+                  onClick={() => setShowDetailModal(false)}
+                  className="flex items-center justify-center gap-2 border border-gray-200 bg-white px-6 py-3 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition-all"
                 >
-                  <Trash2 className="w-5 h-5" />
-                  Delete
+                  Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCompany && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+              <div>
+                <h2 className="text-2xl font-black text-[#2B2D42]">Edit Company</h2>
+                <p className="mt-1 text-sm text-gray-500">Update company status, plan, and next payment date.</p>
+              </div>
+              <button onClick={closeCompanyEditModal} className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-6">
+              <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                <div className="text-sm text-gray-500">Company</div>
+                <div className="mt-1 text-base font-bold text-[#2B2D42]">{editingCompany.name}</div>
+                <div className="text-sm text-gray-600">{editingCompany.email}</div>
+              </div>
+
+              {companyActionError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                  {companyActionError}
+                </div>
+              )}
+
+              <div className="grid gap-5 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Status</div>
+                  <select
+                    value={companyEditForm.status}
+                    onChange={(event) => setCompanyEditForm((current) => ({ ...current, status: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="active">Active</option>
+                    <option value="pending">Pending</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Plan</div>
+                  <select
+                    value={companyEditForm.plan}
+                    onChange={(event) => setCompanyEditForm((current) => ({ ...current, plan: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="Starter">Starter</option>
+                    <option value="Growth">Growth</option>
+                    <option value="Enterprise">Enterprise</option>
+                  </select>
+                </label>
+
+                <label className="block md:col-span-2">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Next Payment</div>
+                  <input
+                    type="date"
+                    value={companyEditForm.nextPayment}
+                    onChange={(event) => setCompanyEditForm((current) => ({ ...current, nextPayment: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5">
+              <button
+                onClick={closeCompanyEditModal}
+                disabled={isSavingCompany}
+                className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCompany}
+                disabled={isSavingCompany}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0077B6] to-[#005F8E] px-5 py-3 text-sm font-bold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isSavingCompany && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCompanyUser && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+              <div>
+                <h2 className="text-2xl font-black text-[#2B2D42]">Edit Company User</h2>
+                <p className="mt-1 text-sm text-gray-500">Update the selected company member account.</p>
+              </div>
+              <button onClick={closeMemberModals} className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-6">
+              {memberActionError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                  {memberActionError}
+                </div>
+              )}
+
+              <div className="grid gap-5 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Full Name</div>
+                  <input
+                    type="text"
+                    value={memberEditForm.name}
+                    onChange={(event) => setMemberEditForm((current) => ({ ...current, name: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Email Address</div>
+                  <input
+                    type="email"
+                    value={memberEditForm.email}
+                    onChange={(event) => setMemberEditForm((current) => ({ ...current, email: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Role</div>
+                  <select
+                    value={memberEditForm.role}
+                    onChange={(event) => setMemberEditForm((current) => ({ ...current, role: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="driver">Driver</option>
+                    <option value="company_admin">Company Admin</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-bold text-gray-700">Status</div>
+                  <select
+                    value={memberEditForm.status}
+                    onChange={(event) => setMemberEditForm((current) => ({ ...current, status: event.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition-colors focus:border-[#0077B6]"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5">
+              <button
+                onClick={closeMemberModals}
+                disabled={isSavingMember}
+                className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCompanyUser}
+                disabled={isSavingMember}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0077B6] to-[#005F8E] px-5 py-3 text-sm font-bold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isSavingMember && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {companyUserToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl">
+            <div className="border-b border-gray-200 px-6 py-5">
+              <h2 className="text-2xl font-black text-[#2B2D42]">Delete Company User</h2>
+              <p className="mt-1 text-sm text-gray-500">This will deactivate the company member account and mark it as deleted.</p>
+            </div>
+
+            <div className="space-y-4 px-6 py-6">
+              {memberActionError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900">
+                  {memberActionError}
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                <div className="text-sm text-gray-500">User</div>
+                <div className="mt-1 text-base font-bold text-[#2B2D42]">{companyUserToDelete.name}</div>
+                <div className="text-sm text-gray-600">{companyUserToDelete.email}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-5">
+              <button
+                onClick={closeMemberModals}
+                disabled={isDeletingMember}
+                className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteCompanyUser}
+                disabled={isDeletingMember}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#E63946] px-5 py-3 text-sm font-bold text-white transition-all hover:bg-[#d62f3d] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isDeletingMember && <Loader2 className="h-4 w-4 animate-spin" />}
+                Delete User
+              </button>
             </div>
           </div>
         </div>
@@ -1423,7 +2345,7 @@ function BusManagement({ buses }: BusManagementProps) {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-black font-['Montserrat'] text-[#2B2D42] mb-2">Bus & Route Management</h1>
+          <h1 className="text-2xl lg:text-3xl font-black font-['Montserrat'] text-[#2B2D42] mb-2">Bus Management</h1>
           <p className="text-gray-600">Manage fleet and schedules</p>
         </div>
         <button className="flex items-center gap-2 bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all">
@@ -1457,7 +2379,7 @@ function BusManagement({ buses }: BusManagementProps) {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">{bus.companyName}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900 font-semibold">{bus.driverName || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900 font-semibold">{bus.driverName || '�'}</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{bus.capacity} seats</td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold ${
@@ -1467,7 +2389,7 @@ function BusManagement({ buses }: BusManagementProps) {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
-                    {bus.createdAt ? new Date(bus.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
+                    {bus.createdAt ? new Date(bus.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '�'}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
@@ -2494,7 +3416,7 @@ function Analytics({ stats, companies, users, buses, tickets, revenueData, subsc
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-sm text-gray-900 truncate">{c.name}</div>
-                        <div className="text-xs text-gray-500">{c.buses} buses · {c.tickets} tickets</div>
+                        <div className="text-xs text-gray-500">{c.buses} buses � {c.tickets} tickets</div>
                       </div>
                       <div className="text-sm font-bold text-[#27AE60] whitespace-nowrap">
                         RWF {c.revenue >= 1000000 ? `${(c.revenue / 1000000).toFixed(1)}M` : c.revenue.toLocaleString()}
@@ -2838,10 +3760,10 @@ function ActivityLogsView() {
                 {logs.map((log, i) => (
                   <tr key={log.id || i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">
-                      {log.created_at ? new Date(log.created_at).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}
+                      {log.created_at ? new Date(log.created_at).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '�'}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900 truncate max-w-[130px]">{log.user_name || '—'}</div>
+                      <div className="font-semibold text-gray-900 truncate max-w-[130px]">{log.user_name || '�'}</div>
                       <div className="text-xs text-gray-400 truncate max-w-[130px]">{log.user_email || ''}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -2850,18 +3772,18 @@ function ActivityLogsView() {
                         log.user_role === 'company_admin'  ? 'bg-blue-100   text-blue-700'   :
                         log.user_role === 'driver'          ? 'bg-green-100  text-green-700'  :
                                                              'bg-gray-100   text-gray-700'
-                      }`}>{log.user_role || '—'}</span>
+                      }`}>{log.user_role || '�'}</span>
                     </td>
                     <td className="px-4 py-3 max-w-[200px]">
-                      <span className="text-gray-800 text-xs">{log.action || '—'}</span>
+                      <span className="text-gray-800 text-xs">{log.action || '�'}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${methodColor[log.method || ''] || 'bg-gray-100 text-gray-600'}`}>
-                        {log.method || '—'}
+                        {log.method || '�'}
                       </span>
                     </td>
                     <td className="px-4 py-3 max-w-[200px]">
-                      <span className="text-gray-500 text-xs font-mono truncate block">{log.path || '—'}</span>
+                      <span className="text-gray-500 text-xs font-mono truncate block">{log.path || '�'}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${
@@ -2869,9 +3791,9 @@ function ActivityLogsView() {
                         log.status_code < 300      ? 'bg-green-100 text-green-700' :
                         log.status_code < 400      ? 'bg-yellow-100 text-yellow-700' :
                                                      'bg-red-100 text-red-700'
-                      }`}>{log.status_code ?? '—'}</span>
+                      }`}>{log.status_code ?? '�'}</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs font-mono whitespace-nowrap">{log.ip_address || '—'}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs font-mono whitespace-nowrap">{log.ip_address || '�'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2883,7 +3805,7 @@ function ActivityLogsView() {
         {!loading && totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50 text-sm">
             <span className="text-gray-500">
-              Page {page} of {totalPages} &nbsp;•&nbsp; {total.toLocaleString()} records
+              Page {page} of {totalPages} &nbsp;�&nbsp; {total.toLocaleString()} records
             </span>
             <div className="flex gap-2">
               <button
@@ -2912,7 +3834,7 @@ function ActivityLogsView() {
 function RuraRoutesManagement() {
   const [saving, setSaving] = useState(false);
 
-  // ── DB-driven data ────────────────────────────────────────────────────────
+  // -- DB-driven data --------------------------------------------------------
   const [routes,        setRoutes]        = useState<RuraRoute[]>([]);
   const [loading,       setLoading]       = useState(false);
   const [totalPages,    setTotalPages]    = useState(1);
@@ -2923,7 +3845,7 @@ function RuraRoutesManagement() {
   const [fromLocations, setFromLocations] = useState<string[]>([]);
   const [toLocations,   setToLocations]   = useState<string[]>([]);
 
-  // ── applied filters (last sent to API) ────────────────────────────────────
+  // -- applied filters (last sent to API) ------------------------------------
   const [appliedSearch,  setAppliedSearch]  = useState('');
   const [appliedFrom,    setAppliedFrom]    = useState('');
   const [appliedTo,      setAppliedTo]      = useState('');
@@ -2931,34 +3853,34 @@ function RuraRoutesManagement() {
   const [appliedDate,    setAppliedDate]    = useState('');
   const [filtersApplied, setFiltersApplied] = useState(false);
 
-  // ── pending (form values before Apply) ────────────────────────────────────
+  // -- pending (form values before Apply) ------------------------------------
   const [pendingSearch,  setPendingSearch]  = useState('');
   const [pendingFrom,    setPendingFrom]    = useState('');
   const [pendingTo,      setPendingTo]      = useState('');
   const [pendingStatus,  setPendingStatus]  = useState<'all' | RouteStatus>('all');
   const [pendingDate,    setPendingDate]    = useState('');
 
-  // ── sorting ───────────────────────────────────────────────────────────────
+  // -- sorting ---------------------------------------------------------------
   const [sortField, setSortField] = useState<SortField>('from_location');
   const [sortDir,   setSortDir]   = useState<SortDir>('asc');
 
-  // ── pagination ────────────────────────────────────────────────────────────
+  // -- pagination ------------------------------------------------------------
   const [page, setPage] = useState(1);
 
-  // ── notifications ─────────────────────────────────────────────────────────
+  // -- notifications ---------------------------------------------------------
   const [ruraToast, setRuraToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const showRuraToast = (type: 'success' | 'error', text: string) => {
     setRuraToast({ type, text });
     setTimeout(() => setRuraToast(null), 3500);
   };
 
-  // ── modal ─────────────────────────────────────────────────────────────────
+  // -- modal -----------------------------------------------------------------
   const [modal,       setModal]       = useState<ModalMode>(null);
   const [activeRoute, setActiveRoute] = useState<RuraRoute | null>(null);
   const [form,        setForm]        = useState<RuraFormState>(BLANK_RURA_FORM);
   const [formErrors,  setFormErrors]  = useState<Partial<Record<keyof RuraFormState, string>>>({});
 
-  // ── fetch helpers ──────────────────────────────────────────────────────────
+  // -- fetch helpers ----------------------------------------------------------
 
   const fetchStats = useCallback(async () => {
     const token = localStorage.getItem('token');
@@ -3036,7 +3958,7 @@ function RuraRoutesManagement() {
     fetchRoutes({ sf: 'from_location', sd: 'asc', page: 1 });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── filter actions ─────────────────────────────────────────────────────────
+  // -- filter actions ---------------------------------------------------------
 
   const applyFilters = () => {
     setAppliedSearch(pendingSearch);
@@ -3079,7 +4001,7 @@ function RuraRoutesManagement() {
     fetchRoutes({ search: s, from_location: fr, to_location: to, status: st, effective_date: dt, page: 1, sf: sortField, sd: sortDir });
   };
 
-  // ── sort / pagination ────────────────────────────────────────────────────
+  // -- sort / pagination ----------------------------------------------------
 
   const handleSort = (field: SortField) => {
     const newDir: SortDir = sortField === field ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
@@ -3098,7 +4020,7 @@ function RuraRoutesManagement() {
     sortField !== field ? null :
     sortDir === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 text-[#0077B6]" /> : <ArrowDown className="w-3 h-3 ml-1 text-[#0077B6]" />;
 
-  // ── modal helpers ─────────────────────────────────────────────────────────
+  // -- modal helpers ---------------------------------------------------------
 
   const openAdd = () => { setForm(BLANK_RURA_FORM); setFormErrors({}); setActiveRoute(null); setModal('add'); };
   const openEdit = (r: RuraRoute) => {
@@ -3110,7 +4032,7 @@ function RuraRoutesManagement() {
   const openDelete = (r: RuraRoute) => { setActiveRoute(r); setModal('delete'); };
   const closeModal = () => { setModal(null); setActiveRoute(null); setForm(BLANK_RURA_FORM); setFormErrors({}); };
 
-  // ── validation ────────────────────────────────────────────────────────────
+  // -- validation ------------------------------------------------------------
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof RuraFormState, string>> = {};
@@ -3126,7 +4048,7 @@ function RuraRoutesManagement() {
     return Object.keys(errs).length === 0;
   };
 
-  // ── save (add / edit) ─────────────────────────────────────────────────────
+  // -- save (add / edit) -----------------------------------------------------
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3141,7 +4063,7 @@ function RuraRoutesManagement() {
           price: Number(form.price), effective_date: form.effective_date,
           source_document: form.source_document.trim(), status: form.status,
         }, { headers });
-        showRuraToast('success', `Route ${form.from_location} → ${form.to_location} created successfully.`);
+        showRuraToast('success', `Route ${form.from_location} ? ${form.to_location} created successfully.`);
       } else if (modal === 'edit' && activeRoute) {
         await axios.put(`${API_BASE_URL}/rura_routes/${activeRoute.id}`, {
           price: Number(form.price), effective_date: form.effective_date, status: form.status,
@@ -3162,7 +4084,7 @@ function RuraRoutesManagement() {
     }
   };
 
-  // ── delete ────────────────────────────────────────────────────────────────
+  // -- delete ----------------------------------------------------------------
 
   const handleDelete = async () => {
     if (!activeRoute) return;
@@ -3171,7 +4093,7 @@ function RuraRoutesManagement() {
       await axios.delete(`${API_BASE_URL}/rura_routes/${activeRoute.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      showRuraToast('success', `Route ${activeRoute.from_location} → ${activeRoute.to_location} deleted.`);
+      showRuraToast('success', `Route ${activeRoute.from_location} ? ${activeRoute.to_location} deleted.`);
       const newPage = routes.length === 1 && page > 1 ? page - 1 : page;
       closeModal();
       setPage(newPage);
@@ -3186,7 +4108,7 @@ function RuraRoutesManagement() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#F5F7FA] p-4 md:p-6">
 
@@ -3270,7 +4192,7 @@ function RuraRoutesManagement() {
                 onKeyDown={e => e.key === 'Enter' && applyFilters()}
                 className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/10 transition-all placeholder:text-gray-400" />
             </div>
-            {/* From Location — populated from DB */}
+            {/* From Location � populated from DB */}
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <select value={pendingFrom} onChange={e => setPendingFrom(e.target.value)}
@@ -3280,7 +4202,7 @@ function RuraRoutesManagement() {
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
-            {/* To Location — populated from DB */}
+            {/* To Location � populated from DB */}
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <select value={pendingTo} onChange={e => setPendingTo(e.target.value)}
@@ -3375,7 +4297,7 @@ function RuraRoutesManagement() {
                     <td colSpan={7} className="py-20 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <Loader2 className="w-8 h-8 text-[#0077B6] animate-spin" />
-                        <p className="text-gray-500 font-medium">Loading routes from database…</p>
+                        <p className="text-gray-500 font-medium">Loading routes from database�</p>
                       </div>
                     </td>
                   </tr>
@@ -3468,7 +4390,7 @@ function RuraRoutesManagement() {
           {pageTotal > 0 && (
             <div className="px-5 py-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <p className="text-sm text-gray-500">
-                Showing <span className="font-semibold text-gray-800">{(page - 1) * RURA_PAGE_SIZE + 1}</span>–
+                Showing <span className="font-semibold text-gray-800">{(page - 1) * RURA_PAGE_SIZE + 1}</span>�
                 <span className="font-semibold text-gray-800">{Math.min(page * RURA_PAGE_SIZE, pageTotal)}</span> of{' '}
                 <span className="font-semibold text-gray-800">{pageTotal}</span> routes
                 {' '}(Page {page} of {totalPages})
@@ -3486,7 +4408,7 @@ function RuraRoutesManagement() {
                       acc.push(p); return acc;
                     }, [])
                     .map((p, i) => p === '...' ? (
-                      <span key={`e-${i}`} className="px-2 py-2 text-gray-400 text-sm">…</span>
+                      <span key={`e-${i}`} className="px-2 py-2 text-gray-400 text-sm">�</span>
                     ) : (
                       <button key={p} onClick={() => handlePageChange(p as number)}
                         className={`w-9 h-9 rounded-xl text-sm font-bold transition-all
@@ -3589,7 +4511,7 @@ function RuraRoutesManagement() {
               <button type="submit" disabled={saving}
                 className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white rounded-xl font-bold text-sm shadow hover:shadow-md hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow">
                 {saving ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> {modal === 'add' ? 'Creating…' : 'Saving…'}</>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> {modal === 'add' ? 'Creating�' : 'Saving�'}</>
                 ) : modal === 'add' ? (
                   <><Plus className="w-4 h-4" /> Create Route</>
                 ) : (
@@ -3670,8 +4592,8 @@ function RuraRoutesManagement() {
             <h2 className="text-xl font-black text-[#2B2D42] mb-2">Delete Route</h2>
             <p className="text-gray-500 text-sm mb-1">Are you sure you want to permanently delete this route?</p>
             <div className="my-4 p-3 bg-gray-50 rounded-xl border border-gray-200">
-              <p className="font-bold text-gray-800">{activeRoute.from_location} → {activeRoute.to_location}</p>
-              <p className="text-sm text-gray-500 mt-0.5">{fmtCurrency(activeRoute.price)} · {fmtDate(activeRoute.effective_date)}</p>
+              <p className="font-bold text-gray-800">{activeRoute.from_location} ? {activeRoute.to_location}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{fmtCurrency(activeRoute.price)} � {fmtDate(activeRoute.effective_date)}</p>
             </div>
             <p className="text-xs text-red-500 mb-5">This action cannot be undone.</p>
             <div className="flex gap-3">
@@ -3693,7 +4615,7 @@ function RuraRoutesManagement() {
   );
 }
 
-// ─── Rura Sub-components ──────────────────────────────────────────────────────
+// --- Rura Sub-components ------------------------------------------------------
 
 function RuraModalOverlay({ children, onClose, maxW = 'max-w-2xl' }: {
   children: React.ReactNode;

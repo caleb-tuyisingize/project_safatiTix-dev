@@ -4,6 +4,7 @@ import {
   ChevronRight, ArrowRight, Loader2, X, CheckCircle2, AlertTriangle,
   RefreshCw, Clock, Users, Filter, RotateCcw, Search, DollarSign,
 } from 'lucide-react';
+import { DEFAULT_PLAN_PERMISSIONS, hasPlanFeature, type PlanPermissions, type SubscriptionPlan } from '../utils/subscriptionPlans';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -522,12 +523,14 @@ function OccupancyBar({ occupied, capacity }: { occupied: number; capacity: numb
 // ─── Create Schedule Form ────────────────────────────────────────────────────
 
 function CreateScheduleForm({
-  routes, buses, onCreate, onToast,
+  routes, buses, onCreate, onToast, canCreateSchedules, subscriptionPlan,
 }: {
   routes: RuraRoute[];
   buses: BusRecord[];
   onCreate: () => void;
   onToast: (type: 'ok' | 'err', text: string) => void;
+  canCreateSchedules: boolean;
+  subscriptionPlan: SubscriptionPlan;
 }) {
   const [form, setForm] = useState({ route_id: '', bus_id: '', date: '', time: '', capacity: '' });
   const [saving, setSaving] = useState(false);
@@ -539,6 +542,10 @@ function CreateScheduleForm({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateSchedules) {
+      onToast('err', 'Shared route scheduling requires the Growth or Enterprise plan');
+      return;
+    }
     if (!form.route_id || !form.bus_id || !form.date || !form.time) {
       onToast('err', 'Route, bus, date and departure time are required'); return;
     }
@@ -553,7 +560,7 @@ function CreateScheduleForm({
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create schedule');
+      if (!res.ok) throw new Error(json.message || json.error || 'Failed to create schedule');
       const routeLabel = selectedRoute
         ? `${selectedRoute.from_location} → ${selectedRoute.to_location}`
         : 'selected route';
@@ -578,6 +585,14 @@ function CreateScheduleForm({
           <p className="text-xs text-gray-500">Assign a bus to a route for a specific date & departure time</p>
         </div>
       </div>
+
+      {!canCreateSchedules && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="font-bold">Shared route scheduling is locked on the {subscriptionPlan} plan.</div>
+          <div className="mt-1 text-amber-800">Upgrade to Growth or Enterprise to create shared-route schedules.</div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div>
           <label className="text-xs font-semibold text-gray-600 mb-1 block">Route *</label>
@@ -658,7 +673,7 @@ function CreateScheduleForm({
         <div className="text-xs text-gray-400">
           {activeRoutes.length} active route{activeRoutes.length !== 1 ? 's' : ''} · {activeBuses.length} active bus{activeBuses.length !== 1 ? 'es' : ''} available
         </div>
-        <button type="submit" disabled={saving || !form.route_id || !form.bus_id || !form.date || !form.time}
+        <button type="submit" disabled={saving || !canCreateSchedules || !form.route_id || !form.bus_id || !form.date || !form.time}
           className="flex items-center gap-2 px-6 py-2.5 bg-[#0077B6] text-white rounded-xl text-sm font-bold hover:bg-[#005F8E] hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           {saving ? 'Creating…' : 'Create Schedule'}
@@ -672,7 +687,13 @@ function CreateScheduleForm({
 
 type Tab = 'routes' | 'schedules' | 'tickets';
 
-export default function CompanySharedRoutesSection() {
+export default function CompanySharedRoutesSection({
+  planPermissions = DEFAULT_PLAN_PERMISSIONS,
+  subscriptionPlan = 'Starter',
+}: {
+  planPermissions?: PlanPermissions;
+  subscriptionPlan?: SubscriptionPlan;
+}) {
   const [tab, setTab]             = useState<Tab>('routes');
   const [routes,    setRoutes]    = useState<SharedRoute[]>([]);
   const [buses,     setBuses]     = useState<BusRecord[]>([]);
@@ -882,6 +903,7 @@ export default function CompanySharedRoutesSection() {
   ];
 
   const fld = 'px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0077B6] bg-white w-full';
+  const canCreateSharedSchedules = hasPlanFeature(planPermissions, 'advancedSchedules');
 
   return (
     <div className="min-h-screen bg-[#F5F7FA] p-4 md:p-6 space-y-5">
@@ -1232,7 +1254,14 @@ export default function CompanySharedRoutesSection() {
       {/* ─── SCHEDULES TAB ─── */}
       {tab === 'schedules' && (
         <div className="space-y-4">
-          <CreateScheduleForm routes={ruraRoutes} buses={buses} onCreate={loadData} onToast={showToast} />
+          <CreateScheduleForm
+            routes={ruraRoutes}
+            buses={buses}
+            onCreate={loadData}
+            onToast={showToast}
+            canCreateSchedules={canCreateSharedSchedules}
+            subscriptionPlan={subscriptionPlan}
+          />
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
             <div className="flex items-center gap-2 mb-3">

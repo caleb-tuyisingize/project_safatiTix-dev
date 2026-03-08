@@ -29,6 +29,11 @@ export const apiUrl = (path: string) => {
 export const socketOptions = {
   path: '/socket.io',
   transports: ['websocket', 'polling'] as const,
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 10000,
 };
 
 export const patchApiFetch = () => {

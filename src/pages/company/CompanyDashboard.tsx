@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { useAuth } from '../../components/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import SuccessPopup from '../../components/SuccessPopup';
 import RevenueReports from './RevenueReports';
 import TicketsManagement from './TicketsManagement';
+import { DEFAULT_PLAN_PERMISSIONS, PLAN_PERMISSION_PRESETS, hasPlanFeature as hasFrontendPlanFeature } from '../../utils/subscriptionPlans';
 import CompanyFleetTracking from '../../components/CompanyFleetTracking';
 import CompanySharedRoutesSection from '../../components/CompanySharedRoutesSection';
 import NotificationBell from '../../components/NotificationBell';
+import CompanySubscriptionManagement from './CompanySubscriptionManagement';
 import {
   LayoutDashboard,
   Bus,
@@ -23,6 +25,7 @@ import {
   DollarSign,
   AlertCircle,
   CheckCircle,
+  Crown,
   Clock,
   Navigation,
   Phone,
@@ -83,37 +86,108 @@ const notifications = [
   { id: 3, type: 'info', message: 'Driver James Mwangi completed trip RAB-101A', time: '1 hr ago' },
 ];
 
+const CompanyVerificationContext = createContext({
+  isVerified: false,
+  accountStatus: 'pending',
+  subscriptionPlan: 'Starter',
+  planPermissions: DEFAULT_PLAN_PERMISSIONS,
+  nextPayment: null as string | null,
+  subscriptionStatus: 'inactive',
+  refreshVerification: async () => {},
+});
+
 export default function CompanyDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { signOut } = useAuth();
+  const { user, signOut, signIn, accessToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Read logged-in user (stored by login/signup) from localStorage
-  let storedUser = null;
-  try {
-    storedUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
-  } catch (e) {
-    storedUser = null;
-  }
+  const storedUser: Record<string, any> | null = (() => {
+    try {
+      return typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
+    } catch (_error) {
+      return null;
+    }
+  })();
 
   const displayName = storedUser ? (storedUser.full_name || storedUser.name || storedUser.fullName || storedUser.email) : 'Admin User';
   const displayRole = storedUser
     ? (storedUser.role === 'company_admin' ? 'Company Admin' : (storedUser.role || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))
     : 'Company Admin';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const initialIsVerified = Boolean(
+    storedUser?.accountStatus === 'approved'
+    || storedUser?.companyVerified === true
+    || user?.accountStatus === 'approved'
+    || user?.companyVerified === true
+  );
+  const [verificationState, setVerificationState] = React.useState({
+    isVerified: initialIsVerified,
+    accountStatus: storedUser?.accountStatus || user?.accountStatus || 'pending',
+  });
+  const [subscriptionState, setSubscriptionState] = React.useState({
+    subscriptionPlan: storedUser?.subscriptionPlan || user?.subscriptionPlan || 'Starter',
+    planPermissions: storedUser?.planPermissions || user?.planPermissions || DEFAULT_PLAN_PERMISSIONS,
+    nextPayment: null as string | null,
+    subscriptionStatus: 'inactive',
+  });
 
-  const menuItems = [
+  const isSubscriptionRoute = location.pathname.endsWith('/subscription');
+
+  const applyCompanyAccessState = React.useCallback((nextUser: any, company: any) => {
+    const subscriptionPlan = company?.subscriptionPlan || company?.plan || nextUser?.subscriptionPlan || 'Starter';
+    const planPermissions = company?.planPermissions || nextUser?.planPermissions || PLAN_PERMISSION_PRESETS[subscriptionPlan as keyof typeof PLAN_PERMISSION_PRESETS] || DEFAULT_PLAN_PERMISSIONS;
+    setSubscriptionState({
+      subscriptionPlan,
+      planPermissions,
+      nextPayment: company?.nextPayment || null,
+      subscriptionStatus: company?.subscriptionStatus || 'inactive',
+    });
+  }, []);
+
+  const menuItems = React.useMemo(() => ([
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'buses', label: 'Buses', icon: Bus },
     { id: 'drivers', label: 'Drivers', icon: Users },
     { id: 'shared', label: 'Shared Routes', icon: Navigation },
     { id: 'schedules', label: 'Schedules', icon: Calendar },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
-    { id: 'revenue', label: 'Revenue & Reports', icon: TrendingUp },
+    {
+      id: 'revenue',
+      label: 'Revenue & Reports',
+      icon: TrendingUp,
+      disabled: !hasFrontendPlanFeature(subscriptionState.planPermissions, 'revenueReports'),
+      lockText: 'Enterprise',
+    },
+    { id: 'subscription', label: 'Subscription', icon: Crown },
     { id: 'tracking', label: 'Live Tracking', icon: MapPin },
     { id: 'settings', label: 'Settings', icon: Settings },
-  ];
+  ]), [subscriptionState.planPermissions]);
+
+  const handleSectionChange = React.useCallback((sectionId: string) => {
+    setActiveSection(sectionId);
+
+    if (sectionId === 'subscription') {
+      if (!isSubscriptionRoute) {
+        navigate('/dashboard/company/subscription');
+      }
+    } else if (isSubscriptionRoute) {
+      navigate('/dashboard/company');
+    }
+
+    setMobileMenuOpen(false);
+  }, [isSubscriptionRoute, navigate]);
+
+  React.useEffect(() => {
+    if (isSubscriptionRoute) {
+      setActiveSection('subscription');
+    } else if (activeSection === 'subscription') {
+      setActiveSection('dashboard');
+    }
+  }, [activeSection, isSubscriptionRoute]);
 
   // KPI state from backend
   const [kpis, setKpis] = React.useState({
@@ -134,6 +208,117 @@ export default function CompanyDashboard() {
   const [recentTickets, setRecentTickets] = React.useState<any[]>([]);
   const [revenueData, setRevenueData] = React.useState<any[]>([]);
   const [totalActiveTrips, setTotalActiveTrips] = useState(0);
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    async function refreshVerification() {
+      if (!token) return;
+
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+
+      try {
+        const [meRes, companyRes] = await Promise.all([
+          fetch('/api/auth/me', { headers }),
+          fetch('/api/company', { headers }),
+        ]);
+
+        let nextUser: any = storedUser || user || null;
+        if (meRes.ok) {
+          const meJson = await meRes.json();
+          nextUser = meJson.user || nextUser;
+          if (nextUser && signIn) {
+            await signIn(accessToken || token, nextUser);
+          }
+        }
+
+        let company: any = null;
+        if (companyRes.ok) {
+          const companyJson = await companyRes.json();
+          company = companyJson.company || null;
+        }
+
+        const isVerified = Boolean(
+          nextUser?.accountStatus === 'approved'
+          || nextUser?.companyVerified === true
+          || company?.accountStatus === 'approved'
+          || company?.account_status === 'approved'
+          || company?.companyVerified === true
+          || company?.company_verified === true
+          || company?.status === 'approved'
+          || company?.is_approved === true
+        );
+
+        const accountStatus = nextUser?.accountStatus
+          || company?.accountStatus
+          || company?.account_status
+          || company?.status
+          || 'pending';
+
+        if (mounted) {
+          setVerificationState({ isVerified, accountStatus });
+          applyCompanyAccessState(nextUser, company);
+        }
+      } catch (error) {
+        console.warn('Failed to refresh verification state', error);
+      }
+    }
+
+    refreshVerification();
+
+    const onFocus = () => { refreshVerification(); };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [accessToken, signIn, token]);
+
+  const refreshVerification = React.useCallback(async () => {
+    if (!token) return;
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    try {
+      const [meRes, companyRes] = await Promise.all([
+        fetch('/api/auth/me', { headers }),
+        fetch('/api/company', { headers }),
+      ]);
+
+      let nextUser: any = storedUser || user || null;
+      if (meRes.ok) {
+        const meJson = await meRes.json();
+        nextUser = meJson.user || nextUser;
+        if (nextUser && signIn) {
+          await signIn(accessToken || token, nextUser);
+        }
+      }
+
+      const companyJson = companyRes.ok ? await companyRes.json() : { company: null };
+      const company = companyJson.company || null;
+      setVerificationState({
+        isVerified: Boolean(
+          nextUser?.accountStatus === 'approved'
+          || nextUser?.companyVerified === true
+          || company?.accountStatus === 'approved'
+          || company?.account_status === 'approved'
+          || company?.companyVerified === true
+          || company?.company_verified === true
+          || company?.status === 'approved'
+          || company?.is_approved === true
+        ),
+        accountStatus: nextUser?.accountStatus || company?.accountStatus || company?.account_status || company?.status || 'pending',
+      });
+      applyCompanyAccessState(nextUser, company);
+    } catch (error) {
+      console.warn('Failed to refresh verification state', error);
+    }
+  }, [accessToken, applyCompanyAccessState, signIn, storedUser, token, user]);
+
+  React.useEffect(() => {
+    if (activeSection === 'revenue' && !hasFrontendPlanFeature(subscriptionState.planPermissions, 'revenueReports')) {
+      setActiveSection('dashboard');
+    }
+  }, [activeSection, subscriptionState.planPermissions]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -343,6 +528,7 @@ export default function CompanyDashboard() {
   }, []);
 
   return (
+    <CompanyVerificationContext.Provider value={{ ...verificationState, ...subscriptionState, refreshVerification }}>
     <div className="flex h-screen bg-[#F5F7FA] font-['Inter']">
       {/* Sidebar */}
       <aside
@@ -378,20 +564,22 @@ export default function CompanyDashboard() {
             <button
               key={item.id}
               onClick={() => {
-                setActiveSection(item.id);
-                setMobileMenuOpen(false);
+                if ((item as any).disabled) return;
+                handleSectionChange(item.id);
               }}
+              disabled={(item as any).disabled}
               className={`
                 w-full flex items-center gap-3 px-4 py-3 rounded-xl
                 transition-all duration-300 font-medium text-sm
                 ${activeSection === item.id
                   ? 'bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white shadow-lg shadow-[#0077B6]/30'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
+                  : (item as any).disabled ? 'text-gray-500 cursor-not-allowed opacity-60' : 'text-gray-300 hover:bg-white/10 hover:text-white'
                 }
               `}
             >
               <item.icon className="w-5 h-5 flex-shrink-0" />
               {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && (item as any).disabled && <span className="ml-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">{(item as any).lockText}</span>}
               {sidebarOpen && activeSection === item.id && (
                 <ChevronRight className="w-4 h-4 ml-auto" />
               )}
@@ -467,28 +655,54 @@ export default function CompanyDashboard() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-          {activeSection === 'dashboard' && <DashboardOverview kpis={kpis} activeBusesList={activeBusesList} revenueData={revenueData} busStatusData={busStatusData} recentTickets={recentTickets} />}
+          {/* Verification Banner — shown when company is not yet approved */}
+          {user?.role === 'company_admin' && !verificationState.isVerified && activeSection !== 'settings' && (
+            <div className="mb-6 flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-800 font-medium">
+                  Your company is not verified. Please complete verification in Settings to unlock platform features.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveSection('settings')}
+                className="flex-shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold transition-colors"
+              >
+                Go to Settings
+              </button>
+            </div>
+          )}
+
+          {activeSection === 'dashboard' && <DashboardOverview kpis={kpis} activeBusesList={activeBusesList} revenueData={revenueData} busStatusData={busStatusData} recentTickets={recentTickets} planPermissions={subscriptionState.planPermissions} />}
           {activeSection === 'buses' && <BusesSection />}
           {activeSection === 'drivers' && <DriversSection />}
-          {activeSection === 'shared' && <CompanySharedRoutesSection />}
+          {activeSection === 'shared' && (
+            <CompanySharedRoutesSection
+              planPermissions={subscriptionState.planPermissions}
+              subscriptionPlan={subscriptionState.subscriptionPlan as 'Starter' | 'Growth' | 'Enterprise'}
+            />
+          )}
           {activeSection === 'schedules' && <SchedulesSection />}
           {activeSection === 'tickets' && <TicketsManagement />}
-          {activeSection === 'revenue' && <RevenueReports />}
+          {activeSection === 'revenue' && (hasFrontendPlanFeature(subscriptionState.planPermissions, 'revenueReports') ? <RevenueReports /> : <PlanLockedGate title="Revenue & Reports requires Enterprise" description="Upgrade to Enterprise to unlock revenue reports, full analytics, CSV exports, and premium reporting tools." />)}
+          {activeSection === 'subscription' && <CompanySubscriptionManagement />}
           {activeSection === 'tracking' && <TrackingSection totalActiveTrips={totalActiveTrips} />}
           {activeSection === 'settings' && <SettingsSection />}
         </main>
       </div>
     </div>
+    </CompanyVerificationContext.Provider>
   );
 }
 
 // Dashboard Overview Component
-function DashboardOverview({ kpis, activeBusesList, revenueData, busStatusData, recentTickets }: { kpis: any; activeBusesList?: any[]; revenueData?: any[]; busStatusData?: any[]; recentTickets?: any[] }) {
+function DashboardOverview({ kpis, activeBusesList, revenueData, busStatusData, recentTickets, planPermissions }: { kpis: any; activeBusesList?: any[]; revenueData?: any[]; busStatusData?: any[]; recentTickets?: any[]; planPermissions?: any }) {
   kpis = kpis || { totalBuses: 0, activeBuses: 0, activeRoutes: 0, activeDrivers: 0, todaysRevenue: 0, todaysTickets: 0 };
   activeBusesList = activeBusesList || [];
   revenueData = revenueData || [];
   busStatusData = busStatusData || [];
   recentTickets = recentTickets || [];
+  const canSeeAnalytics = hasFrontendPlanFeature(planPermissions, 'basicAnalytics') || hasFrontendPlanFeature(planPermissions, 'fullAnalytics');
   return (
     <div className="space-y-6">
       {/* Page Title */}
@@ -555,34 +769,38 @@ function DashboardOverview({ kpis, activeBusesList, revenueData, busStatusData, 
               Export
             </button>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={revenueData}>
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" stroke="#94a3b8" style={{ fontSize: '12px' }} />
-              <YAxis stroke="#94a3b8" style={{ fontSize: '12px' }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="revenue"
-                stroke={COLORS.primary}
-                strokeWidth={3}
-                fill="url(#colorRevenue)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          {canSeeAnalytics ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={revenueData}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" stroke="#94a3b8" style={{ fontSize: '12px' }} />
+                <YAxis stroke="#94a3b8" style={{ fontSize: '12px' }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke={COLORS.primary}
+                  strokeWidth={3}
+                  fill="url(#colorRevenue)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <PlanLockedGate title="Analytics unlock on Growth" description="Upgrade to Growth or Enterprise to view analytics widgets and revenue trends on the dashboard." compact />
+          )}
         </div>
 
         {/* Bus Status */}
@@ -762,8 +980,48 @@ function KPICard({ title, value, change, trend, icon: Icon, color, subtitle }: {
   );
 }
 
+// ── Verification gate — shown inside sections when company is not verified ─────
+function NotVerifiedGate({ sectionName }: { sectionName: string }) {
+  return (
+    <div className="bg-white rounded-2xl p-10 shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center gap-4">
+      <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+        <AlertCircle className="w-8 h-8 text-amber-600" />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold text-slate-800 mb-1">Company Verification Required</h3>
+        <p className="text-sm text-slate-500 max-w-sm">
+          Complete company verification in <strong>Settings → Company Verification</strong> to unlock {sectionName}.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function useIsCompanyVerified() {
+  const { isVerified } = useContext(CompanyVerificationContext);
+  return isVerified;
+}
+
+function PlanLockedGate({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
+  return (
+    <div className={`rounded-2xl border border-[#0077B6]/20 bg-[#0077B6]/5 ${compact ? 'p-6' : 'p-10'} flex flex-col items-center justify-center text-center gap-4`}>
+      <div className="w-16 h-16 rounded-full bg-[#0077B6]/10 flex items-center justify-center">
+        <Crown className="w-8 h-8 text-[#0077B6]" />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold text-slate-800 mb-1">{title}</h3>
+        <p className="text-sm text-slate-500 max-w-lg">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 // Placeholder sections - to be implemented
 function BusesSection() {
+  const isVerified = useIsCompanyVerified();
+  const { planPermissions, subscriptionPlan } = useContext(CompanyVerificationContext);
+  if (!isVerified) return <NotVerifiedGate sectionName="Buses Management" />;
+
   const [buses, setBuses] = React.useState<any[]>([]);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [drivers, setDrivers] = React.useState<any[]>([]);
@@ -813,12 +1071,21 @@ function BusesSection() {
     return () => { mounted = false; };
   }, []);
 
+  const busLimit = planPermissions?.limits?.maxBuses ?? null;
+  const busLimitReached = busLimit !== null && buses.length >= busLimit;
+
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-['Montserrat'] font-bold text-[#2B2D42]">Buses Management</h2>
-        <button onClick={() => setShowAddBus(true)} className="px-3 py-2 bg-[#0077B6] text-white rounded-md">Add Bus</button>
+        <button onClick={() => setShowAddBus(true)} disabled={busLimitReached} className="px-3 py-2 bg-[#0077B6] text-white rounded-md disabled:opacity-60 disabled:cursor-not-allowed">Add Bus</button>
       </div>
+
+      {busLimitReached && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {subscriptionPlan} allows up to {busLimit} buses. Upgrade to add more buses.
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-gray-500">Loading buses...</div>
@@ -864,6 +1131,9 @@ function BusesSection() {
 }
 
 function DriversSection() {
+  const isVerified = useIsCompanyVerified();
+  if (!isVerified) return <NotVerifiedGate sectionName="Drivers Management" />;
+
   const [drivers, setDrivers] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<any>(null);
@@ -1020,6 +1290,10 @@ function DriverModal({ driver, onClose }: { driver: any; onClose: () => void }) 
 }
 
 function SchedulesSection() {
+  const isVerified = useIsCompanyVerified();
+  const { planPermissions, subscriptionPlan } = useContext(CompanyVerificationContext);
+  if (!isVerified) return <NotVerifiedGate sectionName="Schedules Management" />;
+
   const [schedules, setSchedules] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -1067,12 +1341,22 @@ function SchedulesSection() {
     return () => { mounted = false; };
   }, []);
 
+  const activeScheduleCount = schedules.filter((schedule) => ['scheduled', 'in_progress'].includes(String(schedule.status || '').toLowerCase())).length;
+  const scheduleLimit = planPermissions?.limits?.maxActiveSchedules ?? null;
+  const scheduleLimitReached = scheduleLimit !== null && activeScheduleCount >= scheduleLimit;
+
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-['Montserrat'] font-bold text-[#2B2D42]">Schedules Management</h2>
-        <button onClick={() => setShowAdd(true)} className="px-3 py-2 bg-[#0077B6] text-white rounded-md">Create Schedule</button>
+        <button onClick={() => setShowAdd(true)} disabled={scheduleLimitReached} className="px-3 py-2 bg-[#0077B6] text-white rounded-md disabled:opacity-60 disabled:cursor-not-allowed">Create Schedule</button>
       </div>
+
+      {scheduleLimitReached && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {subscriptionPlan} allows up to {scheduleLimit} active schedules. Upgrade to schedule more trips.
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-gray-500">Loading schedules...</div>
@@ -1137,10 +1421,75 @@ function TrackingSection({totalActiveTrips}: { totalActiveTrips: number  }) {
 
 function SettingsSection() {
   const { user, accessToken, signIn } = useAuth();
+  const { refreshVerification } = useContext(CompanyVerificationContext);
   const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
 
   // ── tabs ──────────────────────────────────────────────────────────────────
-  const [tab, setTab] = React.useState<'company' | 'account' | 'password'>('company');
+  const [tab, setTab] = React.useState<'company' | 'account' | 'password' | 'verification'>('company');
+
+  // ── verification state ────────────────────────────────────────────────────
+  const [verDocs, setVerDocs] = React.useState<any[]>([]);
+  const [verLoadDone, setVerLoadDone] = React.useState(false);
+  const [verForm, setVerForm] = React.useState({
+    business_registration_number: '',
+    tax_id: '',
+    office_address: '',
+  });
+  const [verFiles, setVerFiles] = React.useState<Record<string, File | null>>({
+    operating_license: null,
+    company_logo: null,
+  });
+  const [verSubmitting, setVerSubmitting] = React.useState(false);
+  const [verMsg, setVerMsg] = React.useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // load existing documents when verification tab opens
+  React.useEffect(() => {
+    if (tab !== 'verification' || verLoadDone || !token) return;
+    fetch('/api/company/documents', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(j => { setVerDocs(j.documents || []); setVerLoadDone(true); })
+      .catch(() => setVerLoadDone(true));
+  }, [tab, verLoadDone, token]);
+
+  const handleVerFileChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setVerFiles(prev => ({ ...prev, [field]: file }));
+  };
+
+  const submitVerification = async () => {
+    if (!verForm.business_registration_number.trim()) {
+      return setVerMsg({ type: 'err', text: 'Business Registration Number is required' });
+    }
+    setVerSubmitting(true);
+    setVerMsg(null);
+    try {
+      const body = new FormData();
+      // Append text fields as files disguised via a hidden textarea trick isn't needed;
+      // backend accepts multipart fields directly
+      if (verForm.business_registration_number.trim()) {
+        body.append('business_registration_number', verForm.business_registration_number.trim());
+      }
+      if (verForm.tax_id.trim()) body.append('tax_id', verForm.tax_id.trim());
+      if (verForm.office_address.trim()) body.append('office_address', verForm.office_address.trim());
+      if (verFiles.operating_license) body.append('operating_license', verFiles.operating_license);
+      if (verFiles.company_logo) body.append('company_logo', verFiles.company_logo);
+
+      const res = await fetch('/api/company/documents', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Submission failed');
+      setVerMsg({ type: 'ok', text: 'Documents submitted successfully. Your company verification is pending admin approval.' });
+      setVerLoadDone(false); // force reload of doc list
+      await refreshVerification();
+    } catch (e: any) {
+      setVerMsg({ type: 'err', text: e.message });
+    } finally {
+      setVerSubmitting(false);
+    }
+  };
 
   // ── company form ──────────────────────────────────────────────────────────
   const [company, setCompany] = React.useState<any>(null);
@@ -1167,6 +1516,7 @@ function SettingsSection() {
         const c = j.company || {};
         setCompany(c);
         setCompForm({ name: c.name || '', email: c.email || '', phone: c.phone || '', address: c.address || '' });
+        refreshVerification();
       })
       .catch(() => {});
   }, [token]);
@@ -1252,9 +1602,10 @@ function SettingsSection() {
   };
 
   const tabs = [
-    { id: 'company', label: 'Company Profile' },
-    { id: 'account', label: 'My Account' },
-    { id: 'password', label: 'Change Password' },
+    { id: 'company',      label: 'Company Profile' },
+    { id: 'account',      label: 'My Account' },
+    { id: 'password',     label: 'Change Password' },
+    { id: 'verification', label: 'Company Verification' },
   ] as const;
 
   return (
@@ -1390,6 +1741,170 @@ function SettingsSection() {
           </button>
         </div>
       )}
+
+      {/* ── Company Verification tab ─────────────────────────────────────── */}
+      {tab === 'verification' && (
+        <div className="space-y-5">
+          {/* Status banner */}
+          <VerificationStatusBanner docs={verDocs} company={company} />
+
+          {/* Submission form */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+            <div>
+              <h3 className="text-base font-semibold text-slate-800">Submit Verification Documents</h3>
+              <p className="text-xs text-slate-400 mt-1">Upload your company documents for SafariTix admin review. Accepted formats: PDF, JPG, PNG (max 5 MB each).</p>
+            </div>
+
+            {/* Text fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Business Registration Number *</label>
+                <input
+                  className={inputCls}
+                  placeholder="e.g. 100123456"
+                  value={verForm.business_registration_number}
+                  onChange={e => setVerForm(f => ({ ...f, business_registration_number: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Tax ID <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  className={inputCls}
+                  placeholder="e.g. 100456789"
+                  value={verForm.tax_id}
+                  onChange={e => setVerForm(f => ({ ...f, tax_id: e.target.value }))}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Office Address</label>
+                <input
+                  className={inputCls}
+                  placeholder="e.g. KG 120 St, Gasabo, Kigali"
+                  value={verForm.office_address}
+                  onChange={e => setVerForm(f => ({ ...f, office_address: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* File uploads */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Operating License</label>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleVerFileChange('operating_license')}
+                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0077B6]/10 file:text-[#0077B6] hover:file:bg-[#0077B6]/20 cursor-pointer border border-gray-200 rounded-lg px-2 py-1.5"
+                />
+                {verFiles.operating_license && (
+                  <p className="text-xs text-green-600 mt-1">✓ {verFiles.operating_license.name}</p>
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Company Logo</label>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png"
+                  onChange={handleVerFileChange('company_logo')}
+                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0077B6]/10 file:text-[#0077B6] hover:file:bg-[#0077B6]/20 cursor-pointer border border-gray-200 rounded-lg px-2 py-1.5"
+                />
+                {verFiles.company_logo && (
+                  <p className="text-xs text-green-600 mt-1">✓ {verFiles.company_logo.name}</p>
+                )}
+              </div>
+            </div>
+
+            {verMsg && (
+              <div className={`text-sm px-4 py-3 rounded-lg ${verMsg.type === 'ok' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                {verMsg.text}
+              </div>
+            )}
+
+            <button
+              disabled={verSubmitting}
+              onClick={submitVerification}
+              className="bg-[#0077B6] text-white px-6 py-2.5 rounded-lg font-semibold text-sm disabled:opacity-60 hover:bg-[#005f8e] transition-colors"
+            >
+              {verSubmitting ? 'Submitting…' : 'Submit Verification'}
+            </button>
+          </div>
+
+          {/* Previously submitted documents list */}
+          {verDocs.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Submitted Documents</h3>
+              <div className="space-y-2">
+                {verDocs.map((d: any) => (
+                  <div key={d.id} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg text-sm">
+                    <span className="text-slate-700 font-medium capitalize">{String(d.document_type).replace(/_/g, ' ')}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      d.verification_status === 'approved' ? 'bg-green-100 text-green-700' :
+                      d.verification_status === 'rejected' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {d.verification_status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Verification status banner ─────────────────────────────────────────────────
+function VerificationStatusBanner({ docs, company }: { docs: any[]; company: any }) {
+  const accountStatus = company?.accountStatus || company?.account_status || company?.status || '';
+  const hasDocs = docs.length > 0;
+
+  if (accountStatus === 'approved' || company?.is_approved) {
+    return (
+      <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
+        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-green-800">Your company has been verified successfully.</p>
+          <p className="text-xs text-green-600 mt-0.5">You have full access to all platform features.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accountStatus === 'rejected') {
+    return (
+      <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4">
+        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-red-800">Verification rejected. Please upload correct documents.</p>
+          {company?.rejection_reason && (
+            <p className="text-xs text-red-600 mt-0.5">Reason: {company.rejection_reason}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (hasDocs) {
+    return (
+      <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-200 rounded-xl px-5 py-4">
+        <Clock className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-yellow-800">Your documents are under review by the admin.</p>
+          <p className="text-xs text-yellow-600 mt-0.5">This usually takes 1-2 business days. You will be notified when your account is approved.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-5 py-4">
+      <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+      <div>
+        <p className="text-sm font-semibold text-blue-800">Your company is not verified. Please submit verification documents.</p>
+        <p className="text-xs text-blue-600 mt-0.5">Fill in the form below and upload your documents to complete verification.</p>
+      </div>
     </div>
   );
 }
@@ -1566,18 +2081,42 @@ function AddScheduleModal({ onClose, token, buses }: { onClose: () => void; toke
   const submit = async (e: any) => {
     e.preventDefault();
     setError('');
-    if (!busId || !routeFrom || !routeTo || !date || !departureTime) { setError('Bus, route, date and departure time are required'); return; }
+
+    const normalizedRouteFrom = routeFrom.trim();
+    const normalizedRouteTo = routeTo.trim();
+
+    if (!busId || !normalizedRouteFrom || !normalizedRouteTo || !date || !departureTime || !arrivalTime) {
+      setError('Bus, route, date, departure time, and arrival time are required');
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch('/api/company/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ busId, routeFrom, routeTo, departureTime, arrivalTime, date })
+        body: JSON.stringify({
+          busId,
+          routeFrom: normalizedRouteFrom,
+          routeTo: normalizedRouteTo,
+          departureTime,
+          arrivalTime,
+          date,
+        })
       });
+
       if (!res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+
+        if (contentType.includes('application/json')) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error || json?.message || `Request failed with status ${res.status}`);
+        }
+
         const text = await res.text().catch(() => null);
         throw new Error((text && text.slice ? text.slice(0, 1000) : `Request failed with status ${res.status}`) || 'Failed to create schedule');
       }
+
       onClose();
     } catch (err: any) {
       setError(err.message || 'Error');
