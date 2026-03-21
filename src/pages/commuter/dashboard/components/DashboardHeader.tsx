@@ -6,6 +6,7 @@ interface DashboardHeaderProps {
   unreadCount: number;
   refreshing: boolean;
   onRefresh: () => void;
+  onOpenNotifications: () => void;
   onSignOut: () => void;
 }
 
@@ -14,6 +15,7 @@ export default function DashboardHeader({
   unreadCount,
   refreshing,
   onRefresh,
+  onOpenNotifications,
   onSignOut,
 }: DashboardHeaderProps) {
   return (
@@ -41,7 +43,9 @@ export default function DashboardHeader({
           </button>
 
           <button
-            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"
+            type="button"
+            onClick={onOpenNotifications}
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-[#0077B6]/30 hover:bg-[#0077B6]/5"
             aria-label="Notifications"
           >
             <Bell className="h-4 w-4" />

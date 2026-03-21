@@ -87,18 +87,29 @@ export const dedupeBookings = (bookings: BookingRecord[]) => {
   });
 };
 
-const startOfToday = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+const getBookingDateTime = (booking: BookingRecord) => {
+  if (!booking.scheduleDate) return null;
+  const scheduleDate = String(booking.scheduleDate).trim();
+  const timePart = booking.departureTime ? String(booking.departureTime).slice(0, 5) : '00:00';
+
+  const isoDatePart = scheduleDate.includes('T') ? scheduleDate.split('T')[0] : scheduleDate;
+  const isoWithTime = new Date(`${isoDatePart}T${timePart}:00`);
+  if (!Number.isNaN(isoWithTime.getTime())) return isoWithTime;
+
+  const naturalLanguageWithTime = new Date(`${scheduleDate} ${timePart}`);
+  if (!Number.isNaN(naturalLanguageWithTime.getTime())) return naturalLanguageWithTime;
+
+  const dateOnly = new Date(scheduleDate);
+  if (!Number.isNaN(dateOnly.getTime())) return dateOnly;
+
+  return null;
 };
 
 export const isPastBooking = (booking: BookingRecord) => {
   if (booking.status === 'COMPLETED' || booking.status === 'CANCELLED') return true;
-  if (!booking.scheduleDate) return false;
-  const tripDate = new Date(`${booking.scheduleDate}T00:00:00`);
-  if (Number.isNaN(tripDate.getTime())) return false;
-  return tripDate.getTime() < startOfToday().getTime();
+  const tripDateTime = getBookingDateTime(booking);
+  if (!tripDateTime) return false;
+  return tripDateTime.getTime() < Date.now();
 };
 
 export const isCanceledBooking = (booking: BookingRecord) => booking.status === 'CANCELLED';
@@ -106,9 +117,9 @@ export const isCanceledBooking = (booking: BookingRecord) => booking.status === 
 export const isActiveBooking = (booking: BookingRecord) => {
   if (!booking.scheduleId) return false;
   if (booking.status === 'CANCELLED' || booking.status === 'COMPLETED') return false;
-  if (!booking.scheduleDate) return true;
+  if (!booking.scheduleDate) return false;
 
-  const tripDate = new Date(`${booking.scheduleDate}T00:00:00`);
-  if (Number.isNaN(tripDate.getTime())) return true;
-  return tripDate.getTime() >= startOfToday().getTime();
+  const tripDateTime = getBookingDateTime(booking);
+  if (!tripDateTime) return false;
+  return tripDateTime.getTime() >= Date.now();
 };

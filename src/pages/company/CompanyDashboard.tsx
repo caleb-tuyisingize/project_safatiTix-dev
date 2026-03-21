@@ -1134,6 +1134,24 @@ function DriversSection() {
   const isVerified = useIsCompanyVerified();
   if (!isVerified) return <NotVerifiedGate sectionName="Drivers Management" />;
 
+  const resolveDriverEmail = (driver: any) => {
+    const candidates = [
+      driver?.email,
+      driver?.user_email,
+      driver?.userEmail,
+      driver?.driver_email,
+      driver?.driverEmail,
+      driver?.account_email,
+      driver?.accountEmail,
+      driver?.user?.email,
+      driver?.account?.email,
+      driver?.profile?.email,
+    ];
+
+    const valid = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    return valid ? String(valid).trim() : '';
+  };
+
   const [drivers, setDrivers] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<any>(null);
@@ -1154,7 +1172,11 @@ function DriversSection() {
         if (!mounted) return;
         if (res.ok) {
           const json = await res.json();
-          setDrivers(json.drivers || []);
+          const normalizedDrivers = (json.drivers || []).map((driver: any) => ({
+            ...driver,
+            email: resolveDriverEmail(driver),
+          }));
+          setDrivers(normalizedDrivers);
         } else {
           setDrivers([]);
         }
@@ -1215,7 +1237,7 @@ function DriversSection() {
                     }} />
                   </td>
                   <td className="px-3 py-2 border-b">{d.name}</td>
-                  <td className="px-3 py-2 border-b">{d.email || '—'}</td>
+                  <td className="px-3 py-2 border-b">{resolveDriverEmail(d) || '—'}</td>
                   <td className="px-3 py-2 border-b">{d.phone || '—'}</td>
                   <td className="px-3 py-2 border-b">{d.license || '—'}</td>
                   <td className="px-3 py-2 border-b">{d.available ? 'Yes' : 'No'}</td>
@@ -1263,6 +1285,19 @@ function DriversSection() {
 function DriverModal({ driver, onClose }: { driver: any; onClose: () => void }) {
   const [details, setDetails] = React.useState<any>(driver);
   React.useEffect(() => { setDetails(driver); }, [driver]);
+  const resolvedEmail = (
+    details?.email ||
+    details?.user_email ||
+    details?.userEmail ||
+    details?.driver_email ||
+    details?.driverEmail ||
+    details?.account_email ||
+    details?.accountEmail ||
+    details?.user?.email ||
+    details?.account?.email ||
+    details?.profile?.email ||
+    ''
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1274,6 +1309,7 @@ function DriverModal({ driver, onClose }: { driver: any; onClose: () => void }) 
         </div>
         <div className="space-y-3">
           <div><span className="font-semibold">Name:</span> {details.name}</div>
+          <div><span className="font-semibold">Email:</span> {resolvedEmail || 'N/A'}</div>
           <div><span className="font-semibold">License:</span> {details.license || 'N/A'}</div>
           <div><span className="font-semibold">Phone:</span> {details.phone || 'N/A'}</div>
           <div><span className="font-semibold">Status:</span> {details.available ? 'Available' : 'Unavailable'}</div>
@@ -2259,7 +2295,19 @@ function EditBusModal({ onClose, token, drivers, bus, onUpdated }: { onClose: ()
 
 function EditDriverModal({ onClose, token, driver, onUpdated }: { onClose: () => void; token: string | null; driver: any; onUpdated?: () => void }) {
   const [fullName, setFullName] = React.useState(driver.name || driver.full_name || '');
-  const [email, setEmail] = React.useState(driver.email || driver.email || '');
+  const [email, setEmail] = React.useState(
+    driver.email ||
+    driver.user_email ||
+    driver.userEmail ||
+    driver.driver_email ||
+    driver.driverEmail ||
+    driver.account_email ||
+    driver.accountEmail ||
+    driver.user?.email ||
+    driver.account?.email ||
+    driver.profile?.email ||
+    ''
+  );
   const [phone, setPhone] = React.useState(driver.phone || driver.phone_number || '');
   const [license, setLicense] = React.useState(driver.license || '');
   const [error, setError] = React.useState('');

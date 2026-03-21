@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { ArrowRight, Navigation, Search, Ticket, X } from 'lucide-react';
+import { ArrowRight, Bus, Calendar, Navigation, Search, Ticket, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../components/AuthContext';
 import PassengerTracking from '../../components/PassengerTracking';
 import BookingList from './dashboard/components/BookingList';
@@ -30,7 +31,7 @@ function isCancelable(booking: BookingRecord) {
   if (Number.isNaN(departureDateTime.getTime())) return true;
 
   const diffMinutes = (departureDateTime.getTime() - Date.now()) / (1000 * 60);
-  return diffMinutes >= 10;
+  return diffMinutes >= 15;
 }
 
 function filterBookings(bookings: BookingRecord[], filter: BookingFilter) {
@@ -98,6 +99,8 @@ function TicketPreviewModal({ booking, onClose }: { booking: BookingRecord; onCl
 
 export default function CommuterDashboard() {
   const { user, accessToken, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
@@ -109,6 +112,9 @@ export default function CommuterDashboard() {
   const [activeFilter, setActiveFilter] = useState<BookingFilter>('all');
   const [selectedTrackingBooking, setSelectedTrackingBooking] = useState<BookingRecord | null>(null);
   const [ticketPreview, setTicketPreview] = useState<BookingRecord | null>(null);
+  const [searchFrom, setSearchFrom] = useState('');
+  const [searchTo, setSearchTo] = useState('');
+  const [searchDate, setSearchDate] = useState(new Date().toISOString().slice(0, 10));
 
   const pushAlert = (type: AppAlert['type'], message: string) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -201,15 +207,23 @@ export default function CommuterDashboard() {
     }
   }, [bookings, selectedTrackingBooking]);
 
+  useEffect(() => {
+    if (location.pathname === '/commuter/bookings') {
+      setActiveFilter('all');
+      window.setTimeout(() => {
+        document.getElementById('bookings-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+    }
+  }, [location.pathname]);
+
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.isRead).length,
     [notifications]
   );
 
-  const filteredBookings = useMemo(
-    () => filterBookings(bookings, activeFilter),
-    [bookings, activeFilter]
-  );
+  const filteredBookings = useMemo(() => {
+    return filterBookings(bookings, activeFilter);
+  }, [bookings, activeFilter]);
 
   const metrics = useMemo(() => {
     return {
@@ -219,9 +233,41 @@ export default function CommuterDashboard() {
     };
   }, [bookings]);
 
+  const upcomingTrips = useMemo(() => {
+    return bookings.filter((booking) => !isCanceledBooking(booking) && isActiveBooking(booking)).slice(0, 3);
+  }, [bookings]);
+
+  const recentBookings = useMemo(() => {
+    return [...bookings]
+      .sort((left, right) => {
+        const leftTs = new Date(left.createdAt || left.scheduleDate || 0).getTime();
+        const rightTs = new Date(right.createdAt || right.scheduleDate || 0).getTime();
+        return rightTs - leftTs;
+      })
+      .slice(0, 4);
+  }, [bookings]);
+
   const handleTrackBus = (booking: BookingRecord) => {
     setSelectedTrackingBooking(booking);
     document.getElementById('track-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openNotifications = () => {
+    document.getElementById('notifications-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const goToSearch = () => {
+    const params = new URLSearchParams();
+    if (searchFrom.trim()) params.set('from', searchFrom.trim());
+    if (searchTo.trim()) params.set('to', searchTo.trim());
+    if (searchDate) params.set('date', searchDate);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    navigate(`/commuter/search${suffix}`);
+  };
+
+  const onSearchSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    goToSearch();
   };
 
   const handleCancelBooking = async (booking: BookingRecord) => {
@@ -231,7 +277,7 @@ export default function CommuterDashboard() {
     }
 
     if (!isCancelable(booking)) {
-      pushAlert('error', 'This booking can no longer be canceled (less than 10 minutes to departure).');
+      pushAlert('error', 'This booking can no longer be canceled (less than 15 minutes to departure).');
       return;
     }
 
@@ -247,27 +293,23 @@ export default function CommuterDashboard() {
       const primaryPayload = await parseMaybeJson(primaryResponse);
 
       if (!primaryResponse.ok) {
-        const fallbackResponse = await fetch(`/api/tickets/${booking.id}`, {
-          method: 'PATCH',
-          headers: authHeaders(accessToken, true),
-          body: JSON.stringify({ status: 'CANCELLED' }),
-        });
-
-        const fallbackPayload = await parseMaybeJson(fallbackResponse);
-        if (!fallbackResponse.ok) {
-          const message =
-            fallbackPayload?.message ||
-            fallbackPayload?.error ||
-            primaryPayload?.message ||
-            primaryPayload?.error ||
-            'Failed to cancel booking.';
-          throw new Error(message);
-        }
+        const message =
+          primaryPayload?.message ||
+          primaryPayload?.error ||
+          'Failed to cancel booking.';
+        throw new Error(message);
       }
 
       setBookings((current) =>
-        current.map((item) => (item.id === booking.id ? { ...item, status: 'CANCELLED' } : item))
+        current.map((item) => (
+          item.id === booking.id ||
+          item.id === primaryPayload?.ticket?.id ||
+          item.bookingRef === booking.bookingRef
+            ? { ...item, status: primaryPayload?.ticket?.status || 'CANCELLED' }
+            : item
+        ))
       );
+      await loadBookings();
       pushAlert('success', 'Booking canceled successfully.');
     } catch (error: any) {
       pushAlert('error', error?.message || 'Failed to cancel booking.');
@@ -285,6 +327,7 @@ export default function CommuterDashboard() {
         unreadCount={unreadCount}
         refreshing={refreshing}
         onRefresh={refreshDashboard}
+        onOpenNotifications={openNotifications}
         onSignOut={signOut}
       />
 
@@ -324,6 +367,114 @@ export default function CommuterDashboard() {
         </aside>
 
         <main className="min-w-0 space-y-6">
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_44px_rgba(15,23,42,0.08)] md:p-6">
+            <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0077B6]">Search Bus</p>
+                <h2 className="mt-2 text-3xl font-bold text-slate-900 [font-family:Montserrat,Inter,sans-serif]">
+                  Plan your next trip in seconds
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Search by origin, destination, and date to instantly find buses and choose your seat.
+                </p>
+
+                <form onSubmit={onSearchSubmit} className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">From</span>
+                    <input
+                      value={searchFrom}
+                      onChange={(event) => setSearchFrom(event.target.value)}
+                      placeholder="Origin"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-[#0077B6]/15"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">To</span>
+                    <input
+                      value={searchTo}
+                      onChange={(event) => setSearchTo(event.target.value)}
+                      placeholder="Destination"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-[#0077B6]/15"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Date</span>
+                    <div className="relative">
+                      <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="date"
+                        value={searchDate}
+                        onChange={(event) => setSearchDate(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-3 pl-9 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-[#0077B6]/15"
+                      />
+                    </div>
+                  </label>
+
+                  <button
+                    type="submit"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0077B6] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#005F8E]"
+                  >
+                    <Search className="h-4 w-4" />
+                    Search
+                  </button>
+                </form>
+              </div>
+
+              <div className="rounded-2xl border border-[#F4A261]/35 bg-[linear-gradient(145deg,#fff7ed_0%,#ffffff_55%)] p-5 text-center shadow-sm md:p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#A76025]">Start Booking</p>
+                <h3 className="mt-2 text-2xl font-bold text-slate-900 [font-family:Montserrat,Inter,sans-serif]">Book a Bus</h3>
+                <p className="mt-2 text-sm text-slate-600">Fast checkout with seat selection and live trip updates.</p>
+                <button
+                  onClick={goToSearch}
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#F4A261] px-5 py-4 text-base font-bold text-white shadow-[0_14px_30px_rgba(244,162,97,0.35)] transition hover:bg-[#e38a3f]"
+                >
+                  <Bus className="h-5 w-5" />
+                  Book a Bus
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0077B6]">Quick Actions</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <button
+                onClick={() => navigate('/commuter/search')}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:border-[#0077B6]/35 hover:bg-[#0077B6]/5"
+              >
+                <Search className="h-5 w-5 text-[#0077B6]" />
+                <div className="mt-3 text-lg font-bold text-slate-900">Search Bus</div>
+                <p className="mt-1 text-sm text-slate-500">Find available buses by route and date.</p>
+              </button>
+
+              <button
+                onClick={() => navigate('/commuter/bookings')}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:border-[#0077B6]/35 hover:bg-[#0077B6]/5"
+              >
+                <Ticket className="h-5 w-5 text-[#0077B6]" />
+                <div className="mt-3 text-lg font-bold text-slate-900">My Bookings</div>
+                <p className="mt-1 text-sm text-slate-500">Review upcoming and past bookings quickly.</p>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (selectedTrackingBooking) {
+                    handleTrackBus(selectedTrackingBooking);
+                  } else {
+                    document.getElementById('track-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:border-[#0077B6]/35 hover:bg-[#0077B6]/5"
+              >
+                <Navigation className="h-5 w-5 text-[#0077B6]" />
+                <div className="mt-3 text-lg font-bold text-slate-900">Track Bus</div>
+                <p className="mt-1 text-sm text-slate-500">Open live tracking for your active trip.</p>
+              </button>
+            </div>
+          </section>
+
           <section id="summary-panel" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -351,14 +502,52 @@ export default function CommuterDashboard() {
                 canceledTrips={metrics.canceledTrips}
               />
             </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">Upcoming Trips</h4>
+                <div className="mt-3 space-y-2">
+                  {upcomingTrips.length === 0 ? (
+                    <p className="text-sm text-slate-500">No upcoming trips yet.</p>
+                  ) : (
+                    upcomingTrips.map((trip) => (
+                      <div key={trip.id} className="rounded-xl bg-white px-3 py-2">
+                        <div className="text-sm font-semibold text-slate-800">{trip.fromStop} to {trip.toStop}</div>
+                        <div className="text-xs text-slate-500">
+                          {formatDate(trip.scheduleDate)} at {formatTime(trip.departureTime)}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">Recent Bookings</h4>
+                <div className="mt-3 space-y-2">
+                  {recentBookings.length === 0 ? (
+                    <p className="text-sm text-slate-500">No recent bookings yet.</p>
+                  ) : (
+                    recentBookings.map((trip) => (
+                      <div key={`${trip.id}-recent`} className="rounded-xl bg-white px-3 py-2">
+                        <div className="text-sm font-semibold text-slate-800">{trip.fromStop} to {trip.toStop}</div>
+                        <div className="text-xs text-slate-500">{trip.bookingRef || trip.id} • {formatCurrency(trip.fare)}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
           </section>
 
-          <Notifications
-            alerts={alerts}
-            notifications={notifications}
-            loading={loadingNotifications}
-            onDismissAlert={dismissAlert}
-          />
+          <section id="notifications-panel">
+            <Notifications
+              alerts={alerts}
+              notifications={notifications}
+              loading={loadingNotifications}
+              onDismissAlert={dismissAlert}
+            />
+          </section>
 
           <section id="bookings-panel">
             <BookingList

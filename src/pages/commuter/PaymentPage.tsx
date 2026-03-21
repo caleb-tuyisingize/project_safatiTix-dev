@@ -42,6 +42,111 @@ interface LocationState {
   };
 }
 
+type ResolvedScheduleDetails = {
+  routeFrom: string;
+  routeTo: string;
+  departureTime: string;
+  scheduleDate: string;
+  busPlateNumber: string;
+  companyName: string;
+};
+
+// TODO: Backend must return dates in ISO format (YYYY-MM-DD)
+// Legacy formats are temporarily supported but should be removed
+const toIsoDate = (value?: string) => {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+
+  // Accept ISO format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  // Accept ISO datetime and keep only the date part.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) return trimmed.slice(0, 10);
+
+  // Accept DD/MM/YYYY
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  // Handle legacy format like "Mar 21T17:39:00"
+  const legacy = trimmed.match(/^([A-Za-z]{3})\s+(\d{1,2})T/);
+  if (legacy) {
+    const monthMap: Record<string, number> = {
+      Jan: 1, Feb: 2, Mar: 3, Apr: 4,
+      May: 5, Jun: 6, Jul: 7, Aug: 8,
+      Sep: 9, Oct: 10, Nov: 11, Dec: 12,
+    };
+
+    const month = monthMap[legacy[1]];
+    const day = Number(legacy[2]);
+    const year = new Date().getFullYear();
+
+    if (month && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // Reject all other formats
+  return '';
+};
+
+const formatScheduleDate = (value?: string) => {
+  const isoDate = toIsoDate(value);
+  if (!isoDate) return 'Date unavailable';
+
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString();
+};
+
+const formatScheduleTime = (timeValue?: string, dateValue?: string) => {
+  if (!timeValue) return 'N/A';
+  const trimmedTime = String(timeValue).trim();
+
+  // Handle DB time columns like HH:mm or HH:mm:ss directly.
+  const timeMatch = trimmedTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (timeMatch) {
+    const hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const isoDate = toIsoDate(dateValue);
+
+  // Handle legacy values like "Sat Mar 21T17:39:00" by injecting a valid year.
+  const legacyDateTime = trimmedTime.match(/^(?:[A-Za-z]{3}\s+)?([A-Za-z]{3})\s+(\d{1,2})T(\d{1,2}:\d{2})(?::\d{2})?$/);
+  if (legacyDateTime) {
+    const month = legacyDateTime[1];
+    const day = legacyDateTime[2];
+    const hhmm = legacyDateTime[3];
+    const year = isoDate ? Number(isoDate.slice(0, 4)) : new Date().getFullYear();
+    const normalized = `${month} ${day} ${year} ${hhmm}`;
+    const parsedLegacy = new Date(normalized);
+    if (!Number.isNaN(parsedLegacy.getTime())) {
+      return parsedLegacy.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  const combinedDateTime = isoDate && !trimmedTime.includes('T') ? `${isoDate}T${trimmedTime}` : trimmedTime;
+
+  const parsed = new Date(combinedDateTime);
+  if (Number.isNaN(parsed.getTime())) return timeValue;
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const hasReasonableScheduleYear = (value?: string) => {
+  const iso = toIsoDate(value);
+  if (!iso) return false;
+  const year = Number(iso.slice(0, 4));
+  const current = new Date().getFullYear();
+  return Number.isFinite(year) && year >= current - 1 && year <= current + 2;
+};
+
 export default function PaymentPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,6 +160,7 @@ export default function PaymentPage() {
   const scheduleDetails = state?.scheduleDetails;
   const fromStop = state?.fromStop;
   const toStop = state?.toStop;
+  const [resolvedScheduleDetails, setResolvedScheduleDetails] = useState<ResolvedScheduleDetails | null>(null);
   
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('mobile_money');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -68,6 +174,7 @@ export default function PaymentPage() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [bookingExpiresAt, setBookingExpiresAt] = useState<string | null>(null);
+  const [createdTickets, setCreatedTickets] = useState<Array<{ ticketId: string; bookingRef: string; qrCodeUrl?: string }>>([]);
 
   const isMountedRef = useRef(true);
   const pollingTimeoutRef = useRef<number | null>(null);
@@ -86,6 +193,106 @@ export default function PaymentPage() {
       navigate('/dashboard/commuter');
     }
   }, [scheduleId, selectedSeats, navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fallbackDetails: ResolvedScheduleDetails | null = scheduleDetails
+      ? {
+          routeFrom: scheduleDetails.routeFrom,
+          routeTo: scheduleDetails.routeTo,
+          departureTime: scheduleDetails.departureTime,
+          scheduleDate: scheduleDetails.scheduleDate,
+          busPlateNumber: scheduleDetails.busPlateNumber,
+          companyName: scheduleDetails.companyName,
+        }
+      : null;
+
+    const safeFallbackDetails =
+      fallbackDetails && hasReasonableScheduleYear(fallbackDetails.scheduleDate)
+        ? fallbackDetails
+        : null;
+
+    setResolvedScheduleDetails(safeFallbackDetails);
+
+    const fetchCanonicalSchedule = async () => {
+      if (!scheduleId) return;
+
+      const applyResolved = (raw: any) => {
+        if (!raw || cancelled) return;
+
+        setResolvedScheduleDetails({
+          routeFrom: raw.routeFrom || raw.route_from || raw.from_stop || safeFallbackDetails?.routeFrom || fromStop || 'Origin',
+          routeTo: raw.routeTo || raw.route_to || raw.to_stop || safeFallbackDetails?.routeTo || toStop || 'Destination',
+          departureTime: raw.departureTime || raw.departure_time || safeFallbackDetails?.departureTime || '',
+          scheduleDate:
+            raw.date ||
+            raw.schedule_date ||
+            raw.scheduleDate ||
+            raw.departure_date ||
+            raw.departureDate ||
+            safeFallbackDetails?.scheduleDate ||
+            '',
+          busPlateNumber: raw.busPlate || raw.bus_plate || raw.plate_number || safeFallbackDetails?.busPlateNumber || 'TBA',
+          companyName: raw.companyName || raw.company_name || safeFallbackDetails?.companyName || 'SafariTix',
+        });
+      };
+
+      try {
+        const response = await fetch(`${API_URL}/schedules/${scheduleId}`);
+        if (response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          const schedule = payload?.schedule;
+          if (schedule) {
+            applyResolved(schedule);
+            return;
+          }
+        }
+      } catch {
+        // Continue to shared search fallback.
+      }
+
+      // Shared-route schedule IDs may not exist under /schedules/:id; resolve via trip search.
+      const fromQuery = fromStop || safeFallbackDetails?.routeFrom;
+      const toQuery = toStop || safeFallbackDetails?.routeTo;
+      if (!fromQuery || !toQuery) return;
+
+      try {
+        const dateHint = toIsoDate(safeFallbackDetails?.scheduleDate);
+        const currentYear = new Date().getFullYear();
+        const hintedYear = dateHint ? Number(dateHint.slice(0, 4)) : NaN;
+        const useDateHint = Number.isFinite(hintedYear) && hintedYear >= currentYear - 1 && hintedYear <= currentYear + 2;
+
+        const queries: URLSearchParams[] = [];
+        if (useDateHint && dateHint) {
+          queries.push(new URLSearchParams({ from: fromQuery, to: toQuery, date: dateHint }));
+        }
+        // Always try broad lookup so stale years like 2001 cannot block canonical resolution.
+        queries.push(new URLSearchParams({ from: fromQuery, to: toQuery }));
+
+        for (const qs of queries) {
+          const tripsResponse = await fetch(`${API_URL}/search-trips?${qs.toString()}`);
+          if (!tripsResponse.ok) continue;
+
+          const tripsPayload = await tripsResponse.json().catch(() => ({}));
+          const trips = Array.isArray(tripsPayload?.trips) ? tripsPayload.trips : [];
+          const matchedTrip = trips.find((trip: any) => String(trip.schedule_id) === String(scheduleId));
+          if (matchedTrip) {
+            applyResolved(matchedTrip);
+            return;
+          }
+        }
+      } catch {
+        // Keep fallback navigation state if both canonical sources fail.
+      }
+    };
+
+    void fetchCanonicalSchedule();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduleId, scheduleDetails, fromStop, toStop]);
 
   useEffect(() => {
     activeBookingRef.current = activeBookingId;
@@ -226,91 +433,32 @@ export default function PaymentPage() {
     setSuccess(false);
     setStatusMessage(null);
 
-    let createdBookingId: string | null = null;
-
     try {
-      if (activeBookingRef.current && !paymentCompletedRef.current) {
-        await cancelBookingHold(activeBookingRef.current);
-        activeBookingRef.current = null;
-        setActiveBookingId(null);
-        setBookingExpiresAt(null);
-      }
-
-      const holdResponse = await fetch(`${API_URL}/payments/booking-hold`, {
+      const createResponse = await fetch(`${API_URL}/tickets/create`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
-          scheduleId,
-          selectedSeats,
-          paymentMethod,
-          amount: totalAmount,
-          pricePerSeat,
-          fromStop,
-          toStop,
+          tripId: scheduleId,
+          seats: selectedSeats,
+          userId: user?.id,
         }),
       });
 
-      const holdData = await holdResponse.json().catch(() => ({}));
-      if (!holdResponse.ok) {
-        throw new Error(holdData?.message || holdData?.error || 'Failed to reserve the selected seats');
+      const createData = await createResponse.json().catch(() => ({}));
+      if (!createResponse.ok) {
+        throw new Error(createData?.message || createData?.error || 'Failed to create ticket');
       }
 
-      const booking = holdData?.booking;
-      if (!booking?.booking_id) {
-        throw new Error('Seat hold was created without a booking reference');
-      }
-
-      createdBookingId = booking.booking_id;
-      activeBookingRef.current = createdBookingId;
-      setActiveBookingId(createdBookingId);
-      setBookingExpiresAt(booking.expires_at || null);
-      setStatusMessage('Seats reserved. Sending payment request to your phone...');
-
-      const payerReference = paymentMethod === 'card_payment' ? cardNumber.trim() : phoneNumber.trim();
-      const initiateResponse = await fetch(`${API_URL}/payments/initiate`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          booking_id: createdBookingId,
-          phone_number: payerReference,
-          phoneOrCard: payerReference,
-          payment_method: paymentMethod,
-          amount: totalAmount,
-        }),
-      });
-
-      const initiateData = await initiateResponse.json().catch(() => ({}));
-      if (!initiateResponse.ok) {
-        if (createdBookingId) {
-          await cancelBookingHold(createdBookingId);
-          activeBookingRef.current = null;
-          setActiveBookingId(null);
-          setBookingExpiresAt(null);
-        }
-        throw new Error(initiateData?.message || initiateData?.error || 'Failed to initiate payment');
-      }
-
-      const initiatedPayment = initiateData?.payment;
-
-      // If the provider confirmed synchronously (e.g. after a status poll that
-      // already called finalizeSuccessfulPayment), finish immediately.
-      // Otherwise enter the polling loop and wait for the user to approve on phone.
-      if (initiatedPayment?.booking_status === 'paid') {
-        finishSuccess('Payment confirmed! Your ticket is ready.');
-        return;
-      }
-
-      setStatusMessage('Waiting for payment confirmation on your phone...');
-      pollStartTimeRef.current = Date.now();
-      // createdBookingId is guaranteed non-null here — we throw earlier if absent
-      await pollPaymentStatus(createdBookingId!);
+      const tickets = Array.isArray(createData?.tickets) ? createData.tickets : [];
+      setCreatedTickets(
+        tickets.map((t: any) => ({
+          ticketId: t.ticketId || t.id || '',
+          bookingRef: t.bookingRef || t.booking_ref || '',
+          qrCodeUrl: t.qrCodeUrl || t.qr_code_url || undefined,
+        }))
+      );
+      finishSuccess('Payment confirmed! Ticket booked successfully.');
     } catch (err: any) {
-      if (createdBookingId && !paymentCompletedRef.current) {
-        await cancelBookingHold(createdBookingId);
-        activeBookingRef.current = null;
-        setActiveBookingId(null);
-        setBookingExpiresAt(null);
-      }
       clearPolling();
       setError(err.message || 'Booking failed. Please try again.');
       setStatusMessage(null);
@@ -609,7 +757,7 @@ export default function PaymentPage() {
             Review your booking details and select a payment method
           </p>
 
-          {scheduleDetails && (
+          {resolvedScheduleDetails && (
             <div style={styles.bookingInfo}>
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>
@@ -617,7 +765,7 @@ export default function PaymentPage() {
                   Route
                 </div>
                 <div style={styles.infoValue}>
-                  {scheduleDetails.routeFrom} → {scheduleDetails.routeTo}
+                  {resolvedScheduleDetails.routeFrom} → {resolvedScheduleDetails.routeTo}
                 </div>
               </div>
               <div style={styles.infoItem}>
@@ -626,7 +774,7 @@ export default function PaymentPage() {
                   Date
                 </div>
                 <div style={styles.infoValue}>
-                  {new Date(scheduleDetails.scheduleDate).toLocaleDateString()}
+                  {formatScheduleDate(resolvedScheduleDetails.scheduleDate)}
                 </div>
               </div>
               <div style={styles.infoItem}>
@@ -635,7 +783,7 @@ export default function PaymentPage() {
                   Time
                 </div>
                 <div style={styles.infoValue}>
-                  {new Date(scheduleDetails.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatScheduleTime(resolvedScheduleDetails.departureTime, resolvedScheduleDetails.scheduleDate)}
                 </div>
               </div>
               <div style={styles.infoItem}>
@@ -644,7 +792,7 @@ export default function PaymentPage() {
                   Bus
                 </div>
                 <div style={styles.infoValue}>
-                  {scheduleDetails.busPlateNumber}
+                  {resolvedScheduleDetails.busPlateNumber}
                 </div>
               </div>
             </div>
@@ -665,7 +813,10 @@ export default function PaymentPage() {
             {success && (
               <div style={styles.successAlert}>
                 <Check size={20} />
-                <span>Booking successful! Redirecting to your tickets...</span>
+                <span>
+                  Booking successful! Redirecting to your tickets...
+                  {createdTickets.length > 0 ? ` (Ref: ${createdTickets[0].bookingRef || createdTickets[0].ticketId})` : ''}
+                </span>
               </div>
             )}
 
