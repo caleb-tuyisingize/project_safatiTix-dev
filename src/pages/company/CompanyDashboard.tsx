@@ -100,9 +100,16 @@ export default function CompanyDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState('');
+  const [searchHint, setSearchHint] = useState('');
+  const [searchHasResults, setSearchHasResults] = useState(false);
   const { user, signOut, signIn, accessToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const contentSearchRef = React.useRef<HTMLDivElement | null>(null);
+  const searchMatchesRef = React.useRef<HTMLElement[]>([]);
+  const searchTermRef = React.useRef('');
+  const activeMatchIndexRef = React.useRef(-1);
 
   // Read logged-in user (stored by login/signup) from localStorage
   const storedUser: Record<string, any> | null = (() => {
@@ -153,7 +160,6 @@ export default function CompanyDashboard() {
     { id: 'buses', label: 'Buses', icon: Bus },
     { id: 'drivers', label: 'Drivers', icon: Users },
     { id: 'shared', label: 'Shared Routes', icon: Navigation },
-    { id: 'schedules', label: 'Schedules', icon: Calendar },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
     {
       id: 'revenue',
@@ -184,10 +190,93 @@ export default function CompanyDashboard() {
   React.useEffect(() => {
     if (isSubscriptionRoute) {
       setActiveSection('subscription');
+    } else if (activeSection === 'schedules') {
+      setActiveSection('dashboard');
     } else if (activeSection === 'subscription') {
       setActiveSection('dashboard');
     }
   }, [activeSection, isSubscriptionRoute]);
+
+  const clearSearchHighlights = React.useCallback(() => {
+    searchMatchesRef.current.forEach((el) => {
+      el.classList.remove('dashboard-search-hit');
+      el.classList.remove('dashboard-search-hit-active');
+    });
+    searchMatchesRef.current = [];
+    searchTermRef.current = '';
+    activeMatchIndexRef.current = -1;
+    setSearchHasResults(false);
+  }, []);
+
+  const collectSearchMatches = React.useCallback((term: string) => {
+    const root = contentSearchRef.current;
+    if (!root) return [] as HTMLElement[];
+
+    const selector = 'h1,h2,h3,h4,h5,h6,p,span,td,th,button,a,label,li,small,strong';
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>(selector));
+    const normalizedTerm = term.toLowerCase();
+
+    return nodes.filter((el) => {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      if (el.offsetParent === null && style.position !== 'fixed') return false;
+
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return text.length > 0 && text.includes(normalizedTerm);
+    });
+  }, []);
+
+  const focusSearchMatch = React.useCallback((index: number) => {
+    const matches = searchMatchesRef.current;
+    if (!matches.length) return;
+
+    const nextIndex = ((index % matches.length) + matches.length) % matches.length;
+    activeMatchIndexRef.current = nextIndex;
+
+    matches.forEach((el) => el.classList.remove('dashboard-search-hit-active'));
+    const active = matches[nextIndex];
+    active.classList.add('dashboard-search-hit-active');
+    active.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    setSearchHasResults(true);
+    setSearchHint(`Result ${nextIndex + 1} of ${matches.length}`);
+  }, []);
+
+  const runHeaderSearch = React.useCallback((rawQuery: string, direction: 'next' | 'prev' = 'next') => {
+    const query = rawQuery.trim();
+    if (!query) {
+      clearSearchHighlights();
+      setSearchHint('');
+      setSearchHasResults(false);
+      return;
+    }
+
+    const sameTerm = searchTermRef.current === query.toLowerCase();
+    if (sameTerm && searchMatchesRef.current.length > 0) {
+      const delta = direction === 'next' ? 1 : -1;
+      focusSearchMatch(activeMatchIndexRef.current + delta);
+      return;
+    }
+
+    clearSearchHighlights();
+    const matches = collectSearchMatches(query);
+    searchTermRef.current = query.toLowerCase();
+    searchMatchesRef.current = matches;
+
+    if (!matches.length) {
+      setSearchHint('No results on this page');
+      setSearchHasResults(false);
+      return;
+    }
+
+    matches.forEach((el) => el.classList.add('dashboard-search-hit'));
+    focusSearchMatch(0);
+  }, [clearSearchHighlights, collectSearchMatches, focusSearchMatch]);
+
+  React.useEffect(() => {
+    clearSearchHighlights();
+    setSearchHint('');
+    setSearchHasResults(false);
+  }, [activeSection, clearSearchHighlights]);
 
   // KPI state from backend
   const [kpis, setKpis] = React.useState({
@@ -424,26 +513,40 @@ export default function CompanyDashboard() {
 
         const activeDrivers = drivers.length;
 
-        // Today's revenue and tickets from schedules (sold seats × price)
+        // Today's revenue and tickets from actual tickets (not schedule seat math)
         const today = new Date();
-        const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
 
-        let todaysRevenue = 0;
-        let todaysTickets = 0;
-        schedules.forEach((s: any) => {
-          // Check if schedule is for today
-          const scheduleDate = s.scheduleDate || s.date || s.schedule_date;
-          if (scheduleDate && scheduleDate.startsWith(todayStr)) {
-            const totalSeats = s.totalSeats || s.total_seats || 0;
-            const availableSeats = (s.seatsAvailable != null ? s.seatsAvailable : s.seats_available) || 0;
-            const soldSeats = totalSeats - availableSeats;
-            const price = s.price || 0;
-            const scheduleRevenue = soldSeats * price;
-            
-            todaysRevenue += scheduleRevenue;
-            todaysTickets += soldSeats;
+        const normalizeTicketDate = (ticket: any): string | null => {
+          const raw = ticket.scheduleDate
+            || ticket.schedule_date
+            || ticket.tripDate
+            || ticket.trip_date
+            || ticket.bookedAt
+            || ticket.booked_at
+            || ticket.createdAt
+            || ticket.created_at;
+          if (!raw) return null;
+          const parsed = new Date(raw);
+          if (Number.isNaN(parsed.getTime())) {
+            const text = String(raw);
+            return text.length >= 10 ? text.slice(0, 10) : null;
           }
-        });
+          return parsed.toISOString().slice(0, 10);
+        };
+
+        const normalizeTicketStatus = (ticket: any) => String(ticket.status || '').toUpperCase();
+        const ticketAmount = (ticket: any) => Number(ticket.price || ticket.totalPrice || ticket.total_price || 0);
+
+        const isRevenueTicket = (ticket: any) => {
+          const status = normalizeTicketStatus(ticket);
+          return status !== 'CANCELLED' && status !== 'EXPIRED' && status !== 'PENDING_PAYMENT';
+        };
+
+        const revenueTickets = tickets.filter((ticket: any) => isRevenueTicket(ticket));
+        const todaysTicketsRows = revenueTickets.filter((ticket: any) => normalizeTicketDate(ticket) === todayStr);
+        const todaysRevenue = todaysTicketsRows.reduce((sum: number, ticket: any) => sum + ticketAmount(ticket), 0);
+        const todaysTickets = todaysTicketsRows.length;
 
         setKpis({ totalBuses, activeBuses, activeRoutes, activeDrivers, todaysRevenue, todaysTickets });
 
@@ -479,7 +582,7 @@ export default function CompanyDashboard() {
           }));
         setRecentTickets(sortedTickets);
 
-        // Calculate monthly revenue data (last 6 months)
+        // Calculate monthly revenue data (last 6 months) from real tickets
         const monthlyRevenue = new Map<string, { revenue: number; tickets: number }>();
         const last6Months = [];
         for (let i = 5; i >= 0; i--) {
@@ -491,22 +594,15 @@ export default function CompanyDashboard() {
           monthlyRevenue.set(key, { revenue: 0, tickets: 0 });
         }
 
-        schedules.forEach((s: any) => {
-          const scheduleDate = s.scheduleDate || s.date || s.schedule_date;
-          if (scheduleDate) {
-            const monthKey = scheduleDate.slice(0, 7); // YYYY-MM
-            if (monthlyRevenue.has(monthKey)) {
-              const totalSeats = s.totalSeats || s.total_seats || 0;
-              const availableSeats = (s.seatsAvailable != null ? s.seatsAvailable : s.seats_available) || 0;
-              const soldSeats = totalSeats - availableSeats;
-              const price = s.price || 0;
-              const scheduleRevenue = soldSeats * price;
-              
-              const current = monthlyRevenue.get(monthKey)!;
-              current.revenue += scheduleRevenue;
-              current.tickets += soldSeats;
-            }
-          }
+        revenueTickets.forEach((ticket: any) => {
+          const ticketDate = normalizeTicketDate(ticket);
+          if (!ticketDate) return;
+          const monthKey = ticketDate.slice(0, 7); // YYYY-MM
+          if (!monthlyRevenue.has(monthKey)) return;
+
+          const current = monthlyRevenue.get(monthKey)!;
+          current.revenue += ticketAmount(ticket);
+          current.tickets += 1;
         });
 
         const chartData = last6Months.map(m => {
@@ -529,11 +625,22 @@ export default function CompanyDashboard() {
 
   return (
     <CompanyVerificationContext.Provider value={{ ...verificationState, ...subscriptionState, refreshVerification }}>
-    <div className="flex h-screen bg-[#F5F7FA] font-['Inter']">
+    <style>{`
+      .dashboard-search-hit {
+        background: rgba(255, 235, 59, 0.35);
+        border-radius: 6px;
+        transition: background-color 0.2s ease;
+      }
+      .dashboard-search-hit-active {
+        background: rgba(255, 193, 7, 0.55);
+        box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.45);
+      }
+    `}</style>
+    <div className="flex h-screen w-full max-w-full m-0 overflow-hidden bg-[#F5F7FA] font-['Inter']">
       {/* Sidebar */}
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-50
+          fixed lg:static inset-y-0 left-0 z-50 h-screen shrink-0 flex flex-col
           bg-gradient-to-b from-[#2B2D42] to-[#1a1b2e]
           transition-all duration-300 ease-in-out
           ${sidebarOpen ? 'w-64' : 'w-20'}
@@ -559,7 +666,7 @@ export default function CompanyDashboard() {
         </div>
 
         {/* Navigation */}
-        <nav className="mt-8 px-3 space-y-2">
+        <nav className="mt-6 px-3 pb-3 space-y-2 flex-1 overflow-y-auto">
           {menuItems.map((item) => (
             <button
               key={item.id}
@@ -588,10 +695,10 @@ export default function CompanyDashboard() {
         </nav>
 
         {/* Logout Button */}
-        <div className="absolute bottom-0 left-0 right-0 p-3">
+        <div className="p-3 border-t border-white/10">
           <button onClick={() => { signOut(); navigate('/app/login', { replace: true }); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-300 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 font-medium text-sm">
             <LogOut className="w-5 h-5 flex-shrink-0" />
-            {sidebarOpen && <span>Logou</span>}
+            {sidebarOpen && <span>Logout</span>}
           </button>
         </div>
       </aside>
@@ -605,7 +712,7 @@ export default function CompanyDashboard() {
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8">
           <div className="flex items-center gap-4">
@@ -626,13 +733,30 @@ export default function CompanyDashboard() {
             </button>
 
             {/* Search */}
-            <div className="hidden md:flex items-center gap-2 bg-[#F5F7FA] rounded-lg px-4 py-2 w-96">
+            <div className="hidden md:flex flex-col">
+              <div className="flex items-center gap-2 bg-[#F5F7FA] rounded-lg px-4 py-2 w-96">
               <Search className="w-5 h-5 text-gray-400" />
               <input
                 type="text"
+                value={headerSearch}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setHeaderSearch(next);
+                  if (!next.trim()) {
+                    clearSearchHighlights();
+                    setSearchHint('');
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  runHeaderSearch(headerSearch, e.shiftKey ? 'prev' : 'next');
+                }}
                 placeholder="Search buses, drivers, routes..."
                 className="bg-transparent border-none outline-none flex-1 text-sm"
               />
+            </div>
+              {searchHint && <span className="mt-1 text-xs text-gray-500 px-1">{searchHint}{searchHasResults ? ' (Enter for next)' : ''}</span>}
             </div>
           </div>
 
@@ -654,7 +778,8 @@ export default function CompanyDashboard() {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+        <main className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
+          <div ref={contentSearchRef} className="w-full max-w-[1400px] mx-auto">
           {/* Verification Banner — shown when company is not yet approved */}
           {user?.role === 'company_admin' && !verificationState.isVerified && activeSection !== 'settings' && (
             <div className="mb-6 flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
@@ -682,12 +807,12 @@ export default function CompanyDashboard() {
               subscriptionPlan={subscriptionState.subscriptionPlan as 'Starter' | 'Growth' | 'Enterprise'}
             />
           )}
-          {activeSection === 'schedules' && <SchedulesSection />}
           {activeSection === 'tickets' && <TicketsManagement />}
           {activeSection === 'revenue' && (hasFrontendPlanFeature(subscriptionState.planPermissions, 'revenueReports') ? <RevenueReports /> : <PlanLockedGate title="Revenue & Reports requires Enterprise" description="Upgrade to Enterprise to unlock revenue reports, full analytics, CSV exports, and premium reporting tools." />)}
           {activeSection === 'subscription' && <CompanySubscriptionManagement />}
           {activeSection === 'tracking' && <TrackingSection totalActiveTrips={totalActiveTrips} />}
           {activeSection === 'settings' && <SettingsSection />}
+          </div>
         </main>
       </div>
     </div>
