@@ -8,6 +8,15 @@
   --safaritix-danger: #e63946;
 }
 
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+}
+
 body {
   font-family: Inter, Roboto, sans-serif;
 }
