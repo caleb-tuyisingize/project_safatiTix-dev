@@ -1,0 +1,113 @@
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, MapPin, Navigation2, Radar, Route } from 'lucide-react';
+import { Header } from '../public/header';
+
+const highlights = [
+  {
+    title: 'Live location engine',
+    description: 'Track active buses on a modern map view with clear status updates for riders and operators.',
+    icon: Radar,
+  },
+  {
+    title: 'Route visibility',
+    description: "Show each trip's movement, current stage, and destination context in one place.",
+    icon: Route,
+  },
+  {
+    title: 'Arrival confidence',
+    description: 'Give passengers and teams a practical estimate for arrival planning and boarding readiness.',
+    icon: Navigation2,
+  },
+];
+
+const BusTrackingPage: React.FC = () => {
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <Header />
+      <main className="mx-auto max-w-7xl px-6 py-16 sm:py-20 lg:px-8 lg:py-24">
+        <section className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <div className="max-w-2xl">
+            <p className="inline-flex rounded-full bg-[#0077B6]/10 px-4 py-2 text-sm font-semibold text-[#0077B6]">
+              Bus Tracking
+            </p>
+            <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+              A live tracking experience passengers can trust.
+            </h1>
+            <p className="mt-5 text-base leading-8 text-slate-600 sm:text-lg">
+              SafariTix bus tracking helps users follow active journeys with more confidence, fewer delays, and better visibility across the route.
+            </p>
+          </div>
+
+          <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8">
+            <div className="rounded-2xl bg-gradient-to-br from-[#0077B6] to-[#0A6FA5] p-6 text-white">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15">
+                  <MapPin className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold">Tracking that feels reliable</p>
+                  <p className="text-sm text-white/85">Clear movement data for every trip.</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 grid gap-4">
+              {highlights.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <article key={item.title} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0077B6]/10 text-[#0077B6]">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-semibold text-slate-900">{item.title}</h2>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">{item.description}</p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-14 grid gap-6 md:grid-cols-3">
+          <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#0077B6]">Section 1</p>
+            <h3 className="mt-3 text-xl font-bold text-slate-900">Passenger visibility</h3>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Give commuters a transparent view of where the bus is and how the journey is progressing.
+            </p>
+          </div>
+          <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#0077B6]">Section 2</p>
+            <h3 className="mt-3 text-xl font-bold text-slate-900">Operational clarity</h3>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Keep your team aligned with the route status, updates, and live trip context.
+            </p>
+          </div>
+          <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#0077B6]">Section 3</p>
+            <h3 className="mt-3 text-xl font-bold text-slate-900">Trust building</h3>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              A polished tracking experience helps SafariTix feel modern, reliable, and premium.
+            </p>
+          </div>
+        </section>
+
+        <div className="mt-14 flex justify-start">
+          <Link
+            to="/why-safaritix/commuters"
+            className="inline-flex items-center gap-2 rounded-full bg-[#0077B6] px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#005f8e]"
+          >
+            Learn more for commuters
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default BusTrackingPage;
