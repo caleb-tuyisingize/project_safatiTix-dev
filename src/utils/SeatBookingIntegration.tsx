@@ -59,8 +59,23 @@ interface BookingResponse {
 export class SeatBookingService {
   private baseUrl: string;
 
-  constructor(baseUrl: string = '/api') {
-    this.baseUrl = baseUrl;
+  /**
+   * By default, use the correct API URL from config. If running locally (localhost), use local backend.
+   * This avoids root /api calls and supports both local and production.
+   */
+  constructor(baseUrl: string = undefined) {
+    if (baseUrl) {
+      this.baseUrl = baseUrl;
+    } else if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+      // Local development: use local backend
+      this.baseUrl = 'http://localhost:5000/api';
+    } else if (typeof window !== 'undefined') {
+      // Production or preview: use config
+      this.baseUrl = require('../config').API_URL;
+    } else {
+      // Fallback for SSR or test
+      this.baseUrl = '/api';
+    }
   }
 
   /**

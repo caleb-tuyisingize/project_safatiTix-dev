@@ -6,18 +6,12 @@ const SAFARITIX = {
 
 import React, { useState, CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from "../components/ui/select";
 import {
-  Bus,
   AlertCircle,
   Eye,
   EyeOff,
@@ -27,6 +21,7 @@ import {
   Check,
 } from "lucide-react";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import BrandLogo from "../components/BrandLogo";
 
 export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -48,8 +43,22 @@ export default function SignupPage() {
     setError("");
     setSuccessMessage("");
 
+    const normalizedName = signupName.trim();
+    const normalizedEmail = signupEmail.trim().toLowerCase();
+    const normalizedCompanyName = companyName.trim();
+
     if (!agreeToTerms) {
       setError("Please agree to the Terms & Privacy");
+      return;
+    }
+
+    if (!normalizedName || !normalizedEmail || !signupPassword) {
+      setError("Please complete all required fields.");
+      return;
+    }
+
+    if (signupRole === "company_admin" && !normalizedCompanyName) {
+      setError("Company name is required for transport company accounts.");
       return;
     }
 
@@ -57,32 +66,56 @@ export default function SignupPage() {
 
     try {
       const payload = {
-        full_name: signupName,
-        email: signupEmail,
+        full_name: normalizedName,
+        email: normalizedEmail,
         password: signupPassword,
         role: signupRole,
-        company_name: signupRole === "company_admin" ? companyName : undefined,
+        company_name:
+          signupRole === "company_admin" ? normalizedCompanyName : undefined,
       };
 
-      // TEMP LOG: inspect payload before sending to ensure role is present
-      // Remove this log after verification
       console.log("Signup payload:", payload);
 
-      const response = await fetch(
-        "/api/auth/register",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify(payload),
+      });
 
-      const data = await response.json();
+      const rawResponse = await response.text();
+      let data: Record<string, any> = {};
+
+      if (rawResponse) {
+        try {
+          data = JSON.parse(rawResponse);
+        } catch {
+          data = { message: rawResponse };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || "Signup failed");
+        console.error("Signup failed:", {
+          status: response.status,
+          payload,
+          response: data,
+        });
+
+        const backendMessage =
+          data.error ||
+          data.message ||
+          `Signup failed with status ${response.status}`;
+
+        if (backendMessage === "Validation error") {
+          throw new Error(
+            "That email may already be registered. Try logging in, resetting your password, or using a different email address.",
+          );
+        }
+
+        throw new Error(
+          backendMessage,
+        );
       }
 
       // company_admin gets a token (auto-approved) — log them in directly
@@ -103,6 +136,7 @@ export default function SignupPage() {
       // All other roles: email verification required
       setRegisteredEmail(data.email || signupEmail);
     } catch (err: any) {
+      console.error("Signup request error:", err);
       setError(err.message || "Failed to create account. Please try again.");
     } finally {
       setIsLoading(false);
@@ -398,12 +432,7 @@ export default function SignupPage() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f3f4f6', padding: '24px' }}>
         <div style={{ background: 'white', borderRadius: '16px', padding: '48px 40px', maxWidth: '440px', width: '100%', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', textAlign: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '32px' }}>
-            <div style={{ width: '36px', height: '36px', background: SAFARITIX.primary, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
-              <Bus size={20} />
-            </div>
-            <span style={{ fontSize: '20px', fontWeight: '700', color: '#2B2D42' }}>SafariTix</span>
-          </div>
+          <BrandLogo imageWidth={192} imageHeight={62} align="center" style={{ marginBottom: '32px' }} />
           <div style={{ width: '64px', height: '64px', background: '#dcfce7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <Check size={32} color="#16a34a" />
           </div>
@@ -436,10 +465,7 @@ export default function SignupPage() {
         <div style={styles.leftContent}>
           {/* Logo */}
           <div style={styles.logo}>
-            <div style={styles.logoIcon}>
-              <Bus style={{ width: "24px", height: "24px" }} />
-            </div>
-            <span style={styles.logoText}>SafariTix</span>
+            <BrandLogo imageWidth={196} imageHeight={64} />
           </div>
 
           {/* Heading */}
@@ -591,12 +617,10 @@ export default function SignupPage() {
             <div style={styles.formGroup}>
               <label style={styles.label}>I am a</label>
               <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
                 <SelectContent
                   value={signupRole}
                   onChange={(e) => setSignupRole(e.target.value)}
+                  style={{ ...styles.input, appearance: "auto" }}
                 >
                   <SelectItem value="commuter">Commuter (Passenger)</SelectItem>
                   <SelectItem value="company_admin">

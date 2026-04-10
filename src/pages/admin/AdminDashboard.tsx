@@ -6,7 +6,7 @@ import {
   Clock, Calendar, Navigation, Phone, Mail, Shield, BarChart3,
   PieChart, Activity, ArrowUp, ArrowDown, MoreVertical, RefreshCw,
   UserCheck, UserX, Package, CreditCard, Zap, Crown, Star, Loader2,
-  RotateCcw, ShieldCheck, AlertTriangle, CheckCircle2, Info, FileText, ChevronLeft, ChevronRight,
+  RotateCcw, ShieldCheck, AlertTriangle, CheckCircle2, Info, FileText, ChevronLeft, ChevronRight, LogOut,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart as RechartsPie, Pie, Cell,
@@ -14,9 +14,13 @@ import {
 } from 'recharts';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { API_URL as API_BASE_URL } from '../../config';
+import { useAuth } from '../../components/AuthContext';
 import { DEFAULT_PLAN_PERMISSIONS } from '../../utils/subscriptionPlans';
 import AdminNotificationBell from '../../components/AdminNotificationBell';
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+import AdminFleetTracking from '../../components/AdminFleetTracking';
+import ComplaintManagementAdmin from '../../components/ComplaintManagementAdmin';
+import BrandLogo from '../../components/BrandLogo';
 
 // ==================== BRAND COLORS ====================
 const COLORS = {
@@ -88,6 +92,7 @@ const fmtDate = (d: string) => {
 // ==================== MAIN COMPONENT ====================
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeModule, setActiveModule] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -298,11 +303,19 @@ export default function AdminDashboard() {
     { id: 'buses',           icon: Bus,             label: 'Buses',  badge: buses.length > 0 ? buses.length.toString() : null },
     { id: 'rura-routes',     icon: Navigation,      label: 'RURA Routes',     badge: null },
     { id: 'tickets',         icon: Ticket,          label: 'Tickets',         badge: dashboardStats.ticketsToday > 0 ? dashboardStats.ticketsToday.toString() : null },
+    { id: 'complaints',      icon: AlertTriangle,   label: 'Complaints',      badge: null },
     { id: 'tracking',        icon: MapPin,          label: 'Live Tracking',   badge: null },
     { id: 'analytics',       icon: BarChart3,       label: 'Analytics',       badge: null },
     { id: 'activity-logs',   icon: Activity,        label: 'Activity Logs',   badge: null },
     { id: 'settings',        icon: Settings,        label: 'Settings',        badge: null },
   ];
+
+  const handleLogout = useCallback(() => {
+    signOut();
+    localStorage.removeItem('accessToken');
+    setMobileMenuOpen(false);
+    navigate('/app/login', { replace: true });
+  }, [navigate, signOut]);
 
   if (loading) {
     return (
@@ -327,61 +340,66 @@ export default function AdminDashboard() {
         {/* Logo */}
         <div className="h-16 flex items-center justify-center border-b border-gray-200 px-4">
           {sidebarOpen ? (
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-[#0077B6] to-[#005F8E] rounded-xl flex items-center justify-center shadow-lg">
-                <Bus className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="font-black text-lg text-[#2B2D42]">SafariTix</div>
-                <div className="text-[10px] text-gray-500 font-semibold -mt-1">ADMIN PORTAL</div>
-              </div>
+            <div className="flex flex-col items-center">
+              <BrandLogo imageWidth={176} imageHeight={58} />
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Admin Portal</div>
             </div>
           ) : (
-            <div className="w-10 h-10 bg-gradient-to-br from-[#0077B6] to-[#005F8E] rounded-xl flex items-center justify-center shadow-lg">
-              <Bus className="w-6 h-6 text-white" />
-            </div>
+            <BrandLogo imageWidth={44} imageHeight={44} />
           )}
         </div>
 
         {/* Navigation */}
-        <nav className="p-3 space-y-1 overflow-y-auto h-[calc(100vh-64px)]">
-          {modules.map(module => (
+        <div className="flex h-[calc(100vh-64px)] flex-col">
+          <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+            {modules.map(module => (
+              <button
+                key={module.id}
+                onClick={() => {
+                  if ('href' in module && module.href) {
+                    navigate(module.href);
+                  } else {
+                    setActiveModule(module.id);
+                  }
+                  setMobileMenuOpen(false);
+                }}
+                className={`
+                  w-full flex items-center gap-3 px-3 py-3 rounded-xl
+                  transition-all duration-200 font-semibold text-sm
+                  ${activeModule === module.id
+                    ? 'bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white shadow-lg'
+                    : 'text-gray-600 hover:bg-gray-100'
+                  }
+                `}
+              >
+                <module.icon className="w-5 h-5 flex-shrink-0" />
+                {sidebarOpen && (
+                  <>
+                    <span className="flex-1 text-left truncate">{module.label}</span>
+                    {module.badge && (
+                      <span className={`
+                        px-2 py-0.5 rounded-full text-[10px] font-bold
+                        ${activeModule === module.id ? 'bg-white/20 text-white' : 'bg-[#0077B6] text-white'}
+                      `}>
+                        {module.badge}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+            ))}
+          </nav>
+
+          <div className="border-t border-gray-200 p-3">
             <button
-              key={module.id}
-              onClick={() => {
-                if ('href' in module && module.href) {
-                  navigate(module.href);
-                } else {
-                  setActiveModule(module.id);
-                }
-                setMobileMenuOpen(false);
-              }}
-              className={`
-                w-full flex items-center gap-3 px-3 py-3 rounded-xl
-                transition-all duration-200 font-semibold text-sm
-                ${activeModule === module.id
-                  ? 'bg-gradient-to-r from-[#0077B6] to-[#005F8E] text-white shadow-lg'
-                  : 'text-gray-600 hover:bg-gray-100'
-                }
-              `}
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-gray-600 hover:bg-red-50 hover:text-[#E63946] transition-all duration-200 font-semibold text-sm"
             >
-              <module.icon className="w-5 h-5 flex-shrink-0" />
-              {sidebarOpen && (
-                <>
-                  <span className="flex-1 text-left truncate">{module.label}</span>
-                  {module.badge && (
-                    <span className={`
-                      px-2 py-0.5 rounded-full text-[10px] font-bold
-                      ${activeModule === module.id ? 'bg-white/20 text-white' : 'bg-[#0077B6] text-white'}
-                    `}>
-                      {module.badge}
-                    </span>
-                  )}
-                </>
-              )}
+              <LogOut className="w-5 h-5 flex-shrink-0" />
+              {sidebarOpen && <span className="text-left">Logout</span>}
             </button>
-          ))}
-        </nav>
+          </div>
+        </div>
       </aside>
 
       {/* Mobile Overlay */}
@@ -454,6 +472,7 @@ export default function AdminDashboard() {
           {activeModule === 'buses' && <BusManagement buses={buses} />}
           {activeModule === 'rura-routes' && <RuraRoutesManagement />}
           {activeModule === 'tickets' && <TicketManagement tickets={recentTickets} />}
+          {activeModule === 'complaints' && <ComplaintManagementAdmin />}
           {activeModule === 'tracking' && <LiveTracking />}
           {activeModule === 'analytics' && (
             <Analytics
@@ -2739,14 +2758,7 @@ function LiveTracking() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <h1 className="text-2xl lg:text-3xl font-black font-['Montserrat'] text-[#2B2D42]">Live Fleet Tracking</h1>
-      
-      <div className="bg-white rounded-2xl p-8 border border-gray-200 aspect-video flex items-center justify-center">
-        <div className="text-center">
-          <MapPin className="w-16 h-16 text-[#0077B6] mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-gray-900 mb-2">Map Integration</h3>
-          <p className="text-gray-600">GPS tracking map coming soon</p>
-        </div>
-      </div>
+      <AdminFleetTracking />
     </div>
   );
 }
