@@ -23,7 +23,6 @@ import {
   ArrowRight,
   Quote,
 } from 'lucide-react';
-import BrandLogo from '../../components/BrandLogo';
 
 interface LandingPageProps {
   onLoginClick?: () => void;
@@ -232,7 +231,7 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
       filter: 'brightness(0) invert(1) drop-shadow(0 10px 22px rgba(0,0,0,0.22))',
     },
     slogan: {
-      fontSize: 'clamp(1rem, 2.4vw, 1.3rem)',
+      fontSize: 'clamp(0.5rem, 1.8vw, 1rem)',
       fontWeight: '600',
       color: '#D8F0FF',
       marginBottom: '18px',
@@ -241,7 +240,7 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
       textShadow: '0 2px 8px rgba(0, 0, 0, 0.18)',
     },
     heroTitle: {
-      fontSize: 'clamp(2.9rem, 6.2vw, 5.3rem)',
+      fontSize: 'clamp(2rem, 5.8vw, 4rem)',
       fontWeight: '900',
       lineHeight: '1.02',
       marginBottom: '20px',
@@ -250,7 +249,7 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
       fontFamily: 'Montserrat, Inter, sans-serif',
     },
     heroSubtitle: {
-      fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)',
+      fontSize: 'clamp(1.125rem, 1.8vw, 1.5rem)',
       lineHeight: '1.6',
       color: 'rgba(255, 255, 255, 0.93)',
       marginBottom: '28px',
@@ -265,21 +264,22 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
       width: '100%',
     },
     primaryCTA: {
-      background: '#0077B6',
-      color: '#FFFFFF',
-      border: '1px solid rgba(255,255,255,0.16)',
+      background: '#ffffff',
+      color: '#0026ff',
+      border: '1px solid rgb(255, 132, 0)',
       borderRadius: '999px',
       padding: '18px 28px',
       fontSize: '1rem',
       fontWeight: '800',
       cursor: 'pointer',
       boxShadow: '0 14px 28px rgba(0, 119, 182, 0.28)',
-      transition: 'all 0.3s ease',
+      transition: 'all 0.1s ease',
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
       gap: '10px',
-      minWidth: '216px',
+      minWidth: '150px',
+      width: '220px',
     },
     secondaryCTA: {
       background: 'rgba(255, 255, 255, 0.08)',
@@ -819,15 +819,6 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
         <div style={styles.heroOverlay}></div>
         <div style={styles.container}>
           <div style={styles.heroContent}>
-            <div className="hero-reveal hero-delay-1" style={styles.largeLogo}>
-              <BrandLogo
-                align="center"
-                imageWidth={520}
-                imageHeight={170}
-                style={{ ...styles.logoImage, width: '100%' }}
-                imageStyle={styles.logoImage}
-              />
-            </div>
             <div className="hero-reveal hero-delay-2" style={styles.slogan}>On Time, Every Time.</div>
 
             <h1 className="hero-reveal hero-delay-3" style={styles.heroTitle}>
@@ -1137,7 +1128,6 @@ export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
           <div style={styles.footerGrid}>
             <div style={styles.footerBrand}>
               <div style={styles.footerLogo}>
-                <BrandLogo imageWidth={200} imageHeight={66} />
               </div>
               <p style={styles.footerDescription}>
                 Transforming bus travel in Rwanda. SafariTix provides a fast, secure, and reliable way to book tickets and manage your journey.

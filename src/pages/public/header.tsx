@@ -57,9 +57,9 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       top: 0,
       zIndex: 1000,
       width: '100%',
-      background: 'rgba(255, 255, 255, 0.86)',
+      background: 'rgb(255, 255, 255)',
       backdropFilter: 'blur(18px)',
-      boxShadow: '0 1px 0 rgba(15, 23, 42, 0.06)',
+      boxShadow: '0 1px 0 rgb(0, 76, 255)',
     },
     topBar: {
       background: 'linear-gradient(90deg, #0F172A 0%, #1E293B 100%)',
@@ -75,6 +75,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       justifyContent: 'space-between',
       alignItems: 'center',
       gap: '12px',
+      height: '15px',
     },
     topBarItem: {
       display: 'flex',
@@ -104,6 +105,8 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
     },
     mainNav: {
       background: 'rgba(255, 255, 255, 0.72)',
+      marginBottom: '-25px',
+     
     },
     navContainer: {
       maxWidth: '100%',
@@ -112,7 +115,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      minHeight: '54px',
+      minHeight: '28px',
       gap: '16px',
     },
     logo: {
@@ -122,7 +125,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       textDecoration: 'none',
       flexShrink: 0,
       minWidth: '260px',
-      marginLeft: '-18px',
+      marginLeft: '-12px',
     },
     navLinks: {
       display: 'flex',
@@ -130,6 +133,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       gap: '22px',
       flex: 1,
       justifyContent: 'center',
+      marginTop: '-20px',
     },
     navItem: {
       position: 'relative',
@@ -203,6 +207,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       display: 'flex',
       alignItems: 'center',
       gap: '8px',
+      marginBottom: '25PX',
     },
     mobileMenuBtn: {
       background: 'transparent',
@@ -298,7 +303,7 @@ export function Header({ onLoginClick = () => {}, onSignupClick = () => {} }: He
       <nav style={styles.mainNav}>
         <div style={styles.navContainer}>
           <Link to="/" style={styles.logo}>
-            <BrandLogo imageWidth={380} imageHeight={124} />
+            <BrandLogo imageWidth={300} imageHeight={100} />
           </Link>
 
           <div style={{ ...styles.navLinks, display: desktopNavVisible ? 'flex' : 'none' }}>

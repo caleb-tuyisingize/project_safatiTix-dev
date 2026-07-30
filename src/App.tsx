@@ -6,7 +6,7 @@ import CommuterDashboard from './pages/commuter/commuterDashboard';
 import HomePage from './pages/HomePage';
 import { LandingPage } from './pages/public/LandingPage';
 import Layout from './pages/Layout';
-import { RequireRole, RedirectByRole } from './components/RouteGuards';
+import { RequireRole, RedirectByRole, DashboardIndexRedirect } from './components/RouteGuards';
 import NotFound from './pages/NotFound';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
@@ -108,6 +108,7 @@ const App = () => {
 
             {/* Dashboard routes - new layouts */}
             <Route path='/dashboard' element={<Layout />}>
+              <Route index element={<DashboardIndexRedirect />} />
               <Route path='admin' element={<RequireRole allowed={["admin"]}><AdminLayout/></RequireRole>}>
                 <Route index element={<AdminDashboard/>} />
                 <Route path='company-verifications' element={<CompanyVerificationsPage/>} />
