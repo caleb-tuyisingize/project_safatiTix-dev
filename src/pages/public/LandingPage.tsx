@@ -1,6 +1,5 @@
-import React, { CSSProperties, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Header } from './header';
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Ticket,
   MapPin,
@@ -9,20 +8,47 @@ import {
   Twitter,
   Instagram,
   Linkedin,
-  Star,
   Clock,
   Shield,
   Smartphone,
   Bus,
-  CheckCircle,
-  XCircle,
-  CreditCard,
-  Calendar,
-  TrendingUp,
-  Award,
+  QrCode,
+  Radio,
+  BarChart3,
+  Route as RouteIcon,
+  Bell,
+  Wallet,
+  UserCog,
+  FileText,
+  Building2,
   ArrowRight,
-  Quote,
-} from 'lucide-react';
+  ArrowUpRight,
+  Navigation,
+  Gauge,
+  TrendingUp,
+  ShieldCheck,
+  Sparkles,
+  PlayCircle,
+} from "lucide-react";
+
+// NOTE: adjust this import to match where your existing Header component lives.
+import { Header } from "./header";
+import {
+  Container,
+  Reveal,
+  LandingStyles,
+  SectionHeading,
+  Eyebrow,
+  GradientBlob,
+  GlassPanel,
+  FeatureCard,
+  StatBlock,
+  PricingCard,
+  FaqItem,
+  TestimonialCard,
+} from "../../components/landing/shared";
+
+import { RouteTicker } from "../../components/landing/RouteTicker";
 
 interface LandingPageProps {
   onLoginClick?: () => void;
@@ -31,1157 +57,861 @@ interface LandingPageProps {
 
 export function LandingPage({ onLoginClick, onSignupClick }: LandingPageProps) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'commuters' | 'companies'>('commuters');
+  const [audience, setAudience] = useState<"passengers" | "companies">(
+    "passengers",
+  );
 
-  const handleLoginClick = () => {
-    if (onLoginClick) {
-      onLoginClick();
-    } else {
-      navigate('/app/login');
-    }
-  };
+  const handleLoginClick = () =>
+    onLoginClick ? onLoginClick() : navigate("/app/login");
+  const handleSignupClick = () =>
+    onSignupClick ? onSignupClick() : navigate("/app/signup");
 
-  const handleSignupClick = () => {
-    if (onSignupClick) {
-      onSignupClick();
-    } else {
-      navigate('/app/signup');
-    }
-  };
-
-  const coreServices = [
+  const features = [
     {
       icon: Ticket,
-      title: 'Instant Ticket Booking',
-      description: 'Book your bus seat in seconds. Choose from multiple routes, select your preferred seat, and get instant confirmation with a digital ticket.',
-      color: '#0077B6'
+      title: "Online ticket booking",
+      description:
+        "Search every route on one map and confirm a seat in under a minute, on web or mobile.",
     },
     {
-      icon: MapPin,
-      title: 'Real-Time Bus Tracking',
-      description: 'Track your bus live on the map. See exact location, estimated arrival time, and never miss your ride with smart notifications.',
-      color: '#27AE60'
+      icon: Radio,
+      title: "Live GPS bus tracking",
+      description:
+        "Passengers watch their bus move in real time — no more guessing or standing at the wrong stage.",
     },
     {
-      icon: XCircle,
-      title: 'Easy Cancellations',
-      description: 'Plans changed? Cancel or reschedule your ticket up to 10 minutes before departure with instant refunds to your wallet.',
-      color: '#E63946'
-    },
-    {
-      icon: CreditCard,
-      title: 'Secure Mobile Payments',
-      description: 'Pay safely with MTN Mobile Money, Airtel Money, or credit/debit cards. All transactions are encrypted and PCI-compliant.',
-      color: '#F4A261'
-    }
-  ];
-
-  const commuterBenefits = [
-    {
-      icon: Clock,
-      title: 'Save Time',
-      description: 'No more queuing at bus stations. Book from anywhere in 30 seconds.'
-    },
-    {
-      icon: Shield,
-      title: 'Travel with Confidence',
-      description: 'Official RURA-certified routes. Verified bus companies. Guaranteed seats.'
-    },
-    {
-      icon: Smartphone,
-      title: 'Digital Tickets',
-      description: 'QR code tickets on your phone. No paper, no hassle, just scan and board.'
-    },
-    {
-      icon: Award,
-      title: 'Loyalty Rewards',
-      description: 'Earn points on every trip. Redeem for discounts and free rides.'
-    }
-  ];
-
-  const companyBenefits = [
-    {
-      icon: TrendingUp,
-      title: 'Increase Revenue',
-      description: 'Fill more seats with online bookings. Reduce no-shows by 70%.'
+      icon: QrCode,
+      title: "QR code e-tickets",
+      description:
+        "Boarding is a scan, not a queue. Every ticket is verifiable and impossible to duplicate.",
     },
     {
       icon: Users,
-      title: 'Reach More Passengers',
-      description: 'Get discovered by thousands of daily commuters searching for routes.'
+      title: "Seat selection",
+      description:
+        "A live seat map shows exactly what is free, so nobody boards to find their seat taken.",
     },
     {
-      icon: Calendar,
-      title: 'Smart Fleet Management',
-      description: 'Real-time dashboard to manage schedules, drivers, and buses efficiently.'
+      icon: Bus,
+      title: "Fleet management",
+      description:
+        "Track every vehicle, its maintenance schedule, and its assigned crew from one screen.",
     },
     {
-      icon: CheckCircle,
-      title: 'Automated Operations',
-      description: 'Digital check-ins, automated ticketing, and instant payment settlements.'
-    }
+      icon: RouteIcon,
+      title: "Route management",
+      description:
+        "Build routes, stops, and fare tables once — reuse them across every schedule you run.",
+    },
+    {
+      icon: Smartphone,
+      title: "Driver mobile app",
+      description:
+        "Drivers start trips, share location, and update status without a second device.",
+    },
+    {
+      icon: Bell,
+      title: "Real-time notifications",
+      description:
+        "Delays, gate changes, and boarding calls reach passengers before they have to ask.",
+    },
+    {
+      icon: BarChart3,
+      title: "Revenue analytics",
+      description:
+        "Occupancy, revenue per route, and peak-hour demand, updated as trips happen.",
+    },
+    {
+      icon: Wallet,
+      title: "Payment integration",
+      description:
+        "Mobile money and card payments settle straight to operator accounts, automatically reconciled.",
+    },
+    {
+      icon: UserCog,
+      title: "Role-based access",
+      description:
+        "Dispatchers, finance, and drivers each see exactly what their job requires — nothing more.",
+    },
+    {
+      icon: FileText,
+      title: "Reports & insights",
+      description:
+        "Export finance-ready reports for owners, investors, or regulators in a click.",
+    },
+  ];
+  const whyRows = [
+    {
+      icon: Gauge,
+      title: "Less manual work",
+      description:
+        "Manifests, seat charts, and settlements generate themselves instead of living in a notebook.",
+    },
+    {
+      icon: TrendingUp,
+      title: "More seats filled",
+      description:
+        "Operators on SafariTix see bookings rise as passengers discover routes they run.",
+    },
+    {
+      icon: ShieldCheck,
+      title: "Less fraud",
+      description:
+        "Every ticket is a unique, scannable record — duplicate and forged tickets stop working.",
+    },
+    {
+      icon: Sparkles,
+      title: "Happier passengers",
+      description:
+        "Live ETAs and digital tickets replace uncertainty with a trip people can plan around.",
+    },
+    {
+      icon: Radio,
+      title: "Real-time oversight",
+      description:
+        "Know where every bus is, right now, instead of calling drivers for updates.",
+    },
+    {
+      icon: BarChart3,
+      title: "Sharper decisions",
+      description:
+        "See which routes, hours, and buses actually make money — and adjust with evidence.",
+    },
   ];
 
-  const howItWorks = [
+  const journeySteps = [
     {
-      step: '1',
-      title: 'Search Your Route',
-      description: 'Enter your departure and destination cities. Select your travel date and number of passengers.',
-      icon: MapPin
+      title: "Search",
+      description:
+        "Enter a route and date; every operator running it appears side by side.",
     },
     {
-      step: '2',
-      title: 'Choose Your Bus',
-      description: 'Browse available trips with prices, departure times, and bus amenities. Pick your preferred seat.',
-      icon: Bus
+      title: "Choose operator",
+      description: "Compare price, departure time, and bus class in one list.",
     },
     {
-      step: '3',
-      title: 'Pay Securely',
-      description: 'Complete payment via Mobile Money or card. Receive instant confirmation and digital ticket.',
-      icon: CreditCard
+      title: "Select seat",
+      description: "Pick a seat from a live map — window, aisle, or front row.",
     },
     {
-      step: '4',
-      title: 'Board & Travel',
-      description: 'Show your QR code ticket to the driver. Track your bus in real-time and enjoy your journey.',
-      icon: CheckCircle
-    }
+      title: "Pay online",
+      description: "Mobile money or card, confirmed instantly.",
+    },
+    {
+      title: "Receive ticket",
+      description:
+        "A QR e-ticket lands in the app immediately — no printing required.",
+    },
+    {
+      title: "Track bus",
+      description: "Watch the bus approach the stage with a live ETA.",
+    },
+    {
+      title: "Travel",
+      description: "Board with a scan and go — the whole trip is on record.",
+    },
+  ];
+
+  const driverSteps = [
+    {
+      title: "Start trip",
+      description: "One tap opens the manifest and begins the journey log.",
+    },
+    {
+      title: "Share GPS",
+      description:
+        "Location streams to dispatch and to booked passengers automatically.",
+    },
+    {
+      title: "Update status",
+      description:
+        "Mark boarding, departed, or delayed so the board stays accurate.",
+    },
+    {
+      title: "Navigate route",
+      description:
+        "Turn-by-turn guidance follows the assigned route and stops.",
+    },
+    {
+      title: "Finish trip",
+      description:
+        "Close out the manifest; revenue and mileage log themselves.",
+    },
   ];
 
   const testimonials = [
     {
-      name: 'Jean Claude Uwimana',
-      role: 'Business Executive, Kigali',
-      avatar: 'JC',
-      comment: 'SafariTix has transformed my daily commute. I book my seat from the office, track the bus, and never waste time waiting. The app is incredibly reliable.',
-      rating: 5,
-      verified: true
+      name: "Amina Wanjiru",
+      role: "Daily commuter, Nairobi",
+      initials: "AW",
+      quote:
+        "I book from my desk and watch the bus arrive on the map. I have not stood at a stage guessing in months.",
     },
     {
-      name: 'Marie Claire Mugabo',
-      role: 'Transport Company Owner',
-      avatar: 'MC',
-      comment: 'Since joining SafariTix, our occupancy rate increased by 85%. The platform brings us customers we would never reach. Payment settlement is instant and transparent.',
-      rating: 5,
-      verified: true
+      name: "Denis Mugisha",
+      role: "Operations lead, Nyati Coach",
+      initials: "DM",
+      quote:
+        "Occupancy on our Kigali–Kampala route is up since passengers can find and book us directly.",
     },
     {
-      name: 'Patrick Nkusi',
-      role: 'University Student, Huye',
-      avatar: 'PN',
-      comment: 'As a student traveling weekly between Huye and Kigali, SafariTix saves me money and stress. I love the student discounts and the ability to choose window seats!',
-      rating: 5,
-      verified: true
-    }
+      name: "Furaha Massawe",
+      role: "Fleet manager, Baraka Line",
+      initials: "FM",
+      quote:
+        "Settlements used to take a day of reconciling notebooks. Now the dashboard has it before the bus even arrives.",
+    },
   ];
 
-  const stats = [
-    { value: '50,000+', label: 'Active Users' },
-    { value: '200+', label: 'Bus Companies' },
-    { value: '15,000+', label: 'Daily Bookings' },
-    { value: '98%', label: 'Satisfaction Rate' }
+  const faqs = [
+    {
+      q: "Does SafariTix work with operators who already have their own booking process?",
+      a: "Yes. Routes, fares, and schedules can be imported, and SafariTix runs alongside existing station operations while your team transitions at its own pace.",
+    },
+    {
+      q: "What payment methods are supported?",
+      a: "Mobile money (M-Pesa, MTN, Airtel Money), Visa and Mastercard, and bank settlement for operators — all reconciled automatically in the dashboard.",
+    },
+    {
+      q: "How does live tracking work without extra hardware?",
+      a: "The driver app streams GPS location from the driver\u2019s existing smartphone. No separate tracking unit is required to get started.",
+    },
+    {
+      q: "Can government or regulatory agencies get reporting access?",
+      a: "Enterprise plans include a read-only reporting seat so regulators can view compliance and safety data without touching operational tools.",
+    },
+    {
+      q: "Is there a contract, or can we cancel anytime?",
+      a: "Starter and Growth are month to month. Enterprise is an annual agreement with a dedicated rollout plan.",
+    },
   ];
-
-  const styles: Record<string, CSSProperties> = {
-    // Layout
-    container: {
-      maxWidth: '1280px',
-      margin: '0 auto',
-      padding: '0 20px',
-      position: 'relative',
-      zIndex: 1,
-    },
-    
-    // Hero Section
-    heroSection: {
-      background: 'linear-gradient(145deg, #0B5F8E 0%, #0A6FA5 35%, #074163 100%)',
-      color: '#FFFFFF',
-      position: 'relative',
-      overflow: 'hidden',
-      paddingTop: '72px',
-      paddingBottom: '88px',
-    },
-    heroOverlay: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background:
-        'radial-gradient(circle at top left, rgba(255,255,255,0.18), transparent 36%), radial-gradient(circle at right center, rgba(244,162,97,0.12), transparent 28%), url("data:image/svg+xml,%3Csvg width=\'120\' height=\'120\' viewBox=\'0 0 120 120\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' stroke=\'%23ffffff\' stroke-opacity=\'0.08\' stroke-width=\'1\'%3E%3Cpath d=\'M20 28h80M20 60h80M20 92h80\'/%3E%3Cpath d=\'M32 16v88M60 16v88M88 16v88\'/%3E%3C/g%3E%3C/svg%3E")',
-      opacity: 0.45,
-    },
-    heroContent: {
-      textAlign: 'center',
-      maxWidth: '860px',
-      margin: '0 auto 34px',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      position: 'relative',
-      zIndex: 2,
-    },
-    largeLogo: {
-      marginBottom: '18px',
-      display: 'inline-flex',
-      justifyContent: 'center',
-    },
-    logoImage: {
-      filter: 'brightness(0) invert(1) drop-shadow(0 10px 22px rgba(0,0,0,0.22))',
-    },
-    slogan: {
-      fontSize: 'clamp(0.5rem, 1.8vw, 1rem)',
-      fontWeight: '600',
-      color: '#D8F0FF',
-      marginBottom: '18px',
-      letterSpacing: '1px',
-      fontStyle: 'italic',
-      textShadow: '0 2px 8px rgba(0, 0, 0, 0.18)',
-    },
-    heroTitle: {
-      fontSize: 'clamp(2rem, 5.8vw, 4rem)',
-      fontWeight: '900',
-      lineHeight: '1.02',
-      marginBottom: '20px',
-      textShadow: '0 10px 30px rgba(0, 0, 0, 0.18)',
-      letterSpacing: '-0.04em',
-      fontFamily: 'Montserrat, Inter, sans-serif',
-    },
-    heroSubtitle: {
-      fontSize: 'clamp(1.125rem, 1.8vw, 1.5rem)',
-      lineHeight: '1.6',
-      color: 'rgba(255, 255, 255, 0.93)',
-      marginBottom: '28px',
-      maxWidth: '620px',
-    },
-    ctaButtons: {
-      display: 'flex',
-      gap: '14px',
-      justifyContent: 'center',
-      flexWrap: 'wrap',
-      marginBottom: '34px',
-      width: '100%',
-    },
-    primaryCTA: {
-      background: '#ffffff',
-      color: '#0026ff',
-      border: '1px solid rgb(255, 132, 0)',
-      borderRadius: '999px',
-      padding: '18px 28px',
-      fontSize: '1rem',
-      fontWeight: '800',
-      cursor: 'pointer',
-      boxShadow: '0 14px 28px rgba(0, 119, 182, 0.28)',
-      transition: 'all 0.1s ease',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '10px',
-      minWidth: '150px',
-      width: '220px',
-    },
-    secondaryCTA: {
-      background: 'rgba(255, 255, 255, 0.08)',
-      backdropFilter: 'blur(12px)',
-      color: '#FFFFFF',
-      border: '1px solid rgba(255, 255, 255, 0.22)',
-      borderRadius: '999px',
-      padding: '18px 28px',
-      fontSize: '1rem',
-      fontWeight: '700',
-      cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '10px',
-      minWidth: '182px',
-    },
-    statsBar: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-      gap: '18px',
-      background: 'rgba(255, 255, 255, 0.09)',
-      backdropFilter: 'blur(14px)',
-      borderRadius: '24px',
-      padding: '24px 22px',
-      border: '1px solid rgba(255, 255, 255, 0.16)',
-      position: 'relative',
-      zIndex: 2,
-    },
-    statItem: {
-      textAlign: 'center',
-    },
-    statValue: {
-      fontSize: 'clamp(1.7rem, 3vw, 2.4rem)',
-      fontWeight: '900',
-      color: '#FDE7C9',
-      marginBottom: '6px',
-    },
-    statLabel: {
-      fontSize: '0.8rem',
-      color: 'rgba(255, 255, 255, 0.9)',
-      fontWeight: '600',
-      letterSpacing: '0.02em',
-    },
-    heroIllustration: {
-      position: 'absolute',
-      right: '4%',
-      bottom: '18px',
-      width: '180px',
-      height: '120px',
-      borderRadius: '28px',
-      background: 'linear-gradient(145deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05))',
-      border: '1px solid rgba(255,255,255,0.16)',
-      boxShadow: '0 24px 50px rgba(0, 0, 0, 0.12)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '10px',
-      color: '#FFFFFF',
-      opacity: 0.9,
-      zIndex: 1,
-      pointerEvents: 'none',
-    },
-    heroIllustrationLabel: {
-      fontSize: '0.75rem',
-      fontWeight: 700,
-      letterSpacing: '0.12em',
-      textTransform: 'uppercase',
-      color: 'rgba(255,255,255,0.85)',
-    },
-
-    // Sections Common
-    sectionPadding: {
-      padding: '100px 20px',
-    },
-    sectionHeader: {
-      textAlign: 'center',
-      maxWidth: '800px',
-      margin: '0 auto 60px',
-    },
-    sectionTitle: {
-      fontSize: 'clamp(2rem, 5vw, 3rem)',
-      fontWeight: '800',
-      color: '#2B2D42',
-      marginBottom: '16px',
-      lineHeight: '1.2',
-    },
-    sectionSubtitle: {
-      fontSize: 'clamp(1rem, 2vw, 1.25rem)',
-      color: '#6b7280',
-      lineHeight: '1.6',
-    },
-
-    // Services
-    servicesSection: {
-      background: '#F5F7FA',
-    },
-    servicesGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-      gap: '32px',
-      maxWidth: '1200px',
-      margin: '0 auto',
-    },
-    serviceCard: {
-      background: '#FFFFFF',
-      borderRadius: '24px',
-      padding: '40px',
-      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
-      transition: 'all 0.3s ease',
-      border: '2px solid transparent',
-    },
-    serviceIconWrapper: {
-      width: '72px',
-      height: '72px',
-      borderRadius: '18px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: '24px',
-      transition: 'transform 0.3s ease',
-    },
-    serviceTitle: {
-      fontSize: '1.5rem',
-      fontWeight: '700',
-      color: '#2B2D42',
-      marginBottom: '12px',
-    },
-    serviceDescription: {
-      fontSize: '1rem',
-      color: '#6b7280',
-      lineHeight: '1.6',
-    },
-
-    // Benefits
-    benefitsSection: {
-      background: '#FFFFFF',
-    },
-    benefitsTabs: {
-      display: 'flex',
-      justifyContent: 'center',
-      gap: '16px',
-      marginBottom: '60px',
-      flexWrap: 'wrap',
-    },
-    tabButton: {
-      padding: '16px 32px',
-      borderRadius: '50px',
-      border: '2px solid #e5e7eb',
-      background: '#FFFFFF',
-      color: '#2B2D42',
-      fontSize: '1.125rem',
-      fontWeight: '600',
-      cursor: 'pointer',
-      transition: 'all 0.3s ease',
-    },
-    tabButtonActive: {
-      background: '#0077B6',
-      color: '#FFFFFF',
-      borderColor: '#0077B6',
-    },
-    benefitsGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-      gap: '24px',
-      maxWidth: '1100px',
-      margin: '0 auto',
-    },
-    benefitCard: {
-      background: '#F5F7FA',
-      borderRadius: '20px',
-      padding: '32px',
-      transition: 'all 0.3s ease',
-    },
-    benefitIcon: {
-      width: '56px',
-      height: '56px',
-      borderRadius: '14px',
-      background: '#FFFFFF',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: '20px',
-    },
-    benefitTitle: {
-      fontSize: '1.25rem',
-      fontWeight: '700',
-      color: '#2B2D42',
-      marginBottom: '10px',
-    },
-    benefitDescription: {
-      fontSize: '0.938rem',
-      color: '#6b7280',
-      lineHeight: '1.6',
-    },
-
-    // How It Works
-    howItWorksSection: {
-      background: 'linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%)',
-    },
-    stepsGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-      gap: '40px',
-      maxWidth: '1100px',
-      margin: '0 auto',
-      position: 'relative',
-    },
-    stepCard: {
-      background: '#FFFFFF',
-      borderRadius: '20px',
-      padding: '36px',
-      textAlign: 'center',
-      position: 'relative',
-      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
-    },
-    stepNumber: {
-      width: '64px',
-      height: '64px',
-      borderRadius: '50%',
-      background: 'linear-gradient(135deg, #0077B6 0%, #005a8c 100%)',
-      color: '#FFFFFF',
-      fontSize: '1.75rem',
-      fontWeight: '900',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      margin: '0 auto 24px',
-      boxShadow: '0 8px 16px rgba(0, 119, 182, 0.3)',
-    },
-    stepIcon: {
-      width: '48px',
-      height: '48px',
-      margin: '0 auto 20px',
-      color: '#0077B6',
-    },
-    stepTitle: {
-      fontSize: '1.375rem',
-      fontWeight: '700',
-      color: '#2B2D42',
-      marginBottom: '12px',
-    },
-    stepDescription: {
-      fontSize: '0.938rem',
-      color: '#6b7280',
-      lineHeight: '1.6',
-    },
-
-    // Testimonials
-    testimonialsSection: {
-      background: '#FFFFFF',
-    },
-    testimonialsGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-      gap: '32px',
-      maxWidth: '1200px',
-      margin: '0 auto',
-    },
-    testimonialCard: {
-      background: '#F5F7FA',
-      borderRadius: '24px',
-      padding: '40px',
-      position: 'relative',
-      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
-    },
-    quoteIcon: {
-      position: 'absolute',
-      top: '20px',
-      right: '24px',
-      width: '40px',
-      height: '40px',
-      color: '#0077B6',
-      opacity: 0.2,
-    },
-    testimonialHeader: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '16px',
-      marginBottom: '24px',
-    },
-    avatar: {
-      width: '56px',
-      height: '56px',
-      borderRadius: '50%',
-      background: 'linear-gradient(135deg, #0077B6 0%, #005a8c 100%)',
-      color: '#FFFFFF',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '1.25rem',
-      fontWeight: '700',
-    },
-    testimonialInfo: {
-      flex: 1,
-    },
-    testimonialName: {
-      fontSize: '1.125rem',
-      fontWeight: '700',
-      color: '#2B2D42',
-      marginBottom: '4px',
-    },
-    testimonialRole: {
-      fontSize: '0.875rem',
-      color: '#6b7280',
-    },
-    stars: {
-      display: 'flex',
-      gap: '4px',
-      marginBottom: '20px',
-    },
-    testimonialComment: {
-      fontSize: '1rem',
-      color: '#2B2D42',
-      lineHeight: '1.7',
-      fontStyle: 'italic',
-      marginBottom: '16px',
-    },
-    verifiedBadge: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '6px',
-      background: '#27AE60',
-      color: '#FFFFFF',
-      padding: '6px 12px',
-      borderRadius: '20px',
-      fontSize: '0.75rem',
-      fontWeight: '600',
-    },
-
-    // CTA Banner
-    ctaBannerSection: {
-      padding: '80px 20px',
-      background: 'linear-gradient(135deg, #0077B6 0%, #005a8c 100%)',
-      color: '#FFFFFF',
-      textAlign: 'center',
-    },
-    ctaBannerTitle: {
-      fontSize: 'clamp(2rem, 5vw, 3.5rem)',
-      fontWeight: '900',
-      marginBottom: '24px',
-      lineHeight: '1.2',
-    },
-    ctaBannerSubtitle: {
-      fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)',
-      color: 'rgba(255, 255, 255, 0.95)',
-      marginBottom: '40px',
-      maxWidth: '700px',
-      margin: '0 auto 40px',
-    },
-    ctaBannerButtons: {
-      display: 'flex',
-      gap: '16px',
-      justifyContent: 'center',
-      flexWrap: 'wrap',
-    },
-
-    // App Badges
-    appBadgesSection: {
-      padding: '60px 20px',
-      background: '#FFFFFF',
-      textAlign: 'center',
-    },
-    appBadgesTitle: {
-      fontSize: '1.5rem',
-      fontWeight: '700',
-      color: '#2B2D42',
-      marginBottom: '32px',
-    },
-    appBadges: {
-      display: 'flex',
-      justifyContent: 'center',
-      gap: '20px',
-      flexWrap: 'wrap',
-    },
-    appBadge: {
-      background: '#2B2D42',
-      color: '#FFFFFF',
-      padding: '12px 24px',
-      borderRadius: '12px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '14px',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-      cursor: 'pointer',
-      transition: 'transform 0.2s ease',
-      minWidth: '200px',
-    },
-    appStoreIcon: { width: '32px', height: '32px' },
-    badgeSubText: { fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)' },
-    badgeMainText: { fontSize: '1.125rem', fontWeight: '700' },
-
-    // Footer
-    footer: {
-      padding: '80px 20px 30px',
-      background: '#2B2D42',
-      color: '#FFFFFF',
-    },
-    footerGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-      gap: '40px',
-      marginBottom: '60px',
-      maxWidth: '1200px',
-      margin: '0 auto',
-    },
-    footerBrand: {
-      maxWidth: '300px',
-    },
-    footerLogo: {
-      marginBottom: '20px',
-      filter: 'brightness(0) invert(1)',
-    },
-    footerDescription: {
-      fontSize: '0.938rem',
-      color: 'rgba(255, 255, 255, 0.8)',
-      lineHeight: '1.6',
-      marginBottom: '24px',
-    },
-    socialIcons: {
-      display: 'flex',
-      gap: '12px',
-    },
-    socialIcon: {
-      width: '40px',
-      height: '40px',
-      borderRadius: '50%',
-      background: 'rgba(255, 255, 255, 0.1)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      transition: 'all 0.3s ease',
-    },
-    footerTitle: {
-      fontSize: '1.125rem',
-      fontWeight: '700',
-      marginBottom: '24px',
-      color: '#F4A261', // Brand Orange for accents
-    },
-    footerLinks: {
-      listStyle: 'none',
-      padding: 0,
-      margin: 0,
-    },
-    footerLink: {
-      color: 'rgba(255, 255, 255, 0.8)',
-      textDecoration: 'none',
-      display: 'block',
-      padding: '8px 0',
-      fontSize: '0.938rem',
-      transition: 'color 0.2s',
-      cursor: 'pointer',
-    },
-    footerBottom: {
-      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-      paddingTop: '30px',
-      textAlign: 'center',
-      maxWidth: '1200px',
-      margin: '0 auto',
-    },
-    footerBottomContent: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      flexWrap: 'wrap',
-      gap: '20px',
-    },
-    copyright: {
-      fontSize: '0.875rem',
-      color: 'rgba(255, 255, 255, 0.7)',
-    },
-    footerBottomLinks: {
-      display: 'flex',
-      gap: '24px',
-      flexWrap: 'wrap',
-    },
-  };
 
   return (
-    <div style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-      <style>{`
-        @keyframes heroFadeUp {
-          from {
-            opacity: 0;
-            transform: translateY(18px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        @keyframes heroGlow {
-          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.72; }
-          50% { transform: translate3d(0, -8px, 0) scale(1.02); opacity: 0.95; }
-        }
-        .hero-reveal {
-          opacity: 0;
-          animation: heroFadeUp 0.8s ease forwards;
-        }
-        .hero-delay-1 { animation-delay: 0.08s; }
-        .hero-delay-2 { animation-delay: 0.18s; }
-        .hero-delay-3 { animation-delay: 0.28s; }
-        .hero-delay-4 { animation-delay: 0.38s; }
-        .hero-cta {
-          transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease, border-color 0.25s ease;
-        }
-        .hero-cta:hover {
-          transform: translateY(-2px);
-        }
-        .hero-illustration {
-          animation: heroGlow 6s ease-in-out infinite;
-        }
-        @media (max-width: 768px) {
-          .hero-cta-group {
-            flex-direction: column;
-            align-items: stretch;
-          }
-          .hero-cta {
-            width: 100%;
-            min-width: 0 !important;
-          }
-          .hero-stats {
-            display: none !important;
-          }
-          .hero-illustration {
-            display: none;
-          }
-        }
-      `}</style>
-      <Header onLoginClick={handleLoginClick} onSignupClick={handleSignupClick} />
+    <div className="st-font-body bg-white">
+      <LandingStyles />
+      <Header
+        onLoginClick={handleLoginClick}
+        onSignupClick={handleSignupClick}
+      />
 
-      {/* Hero Section */}
-      <section style={styles.heroSection}>
-        <div style={styles.heroOverlay}></div>
-        <div style={styles.container}>
-          <div style={styles.heroContent}>
-            <div className="hero-reveal hero-delay-2" style={styles.slogan}>On Time, Every Time.</div>
+      {/* ============ HERO ============ */}
+      <section className="relative overflow-hidden bg-[#071827] pb-16 pt-20 sm:pt-28">
+        <GradientBlob className="left-[-10%] top-[-10%] h-[420px] w-[420px] bg-[#0077B6]/30" />
+        <GradientBlob className="right-[-14%] top-[20%] h-[380px] w-[380px] bg-[#005F8E]/25" />
+        <div
+          aria-hidden
+          className="absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)",
+            backgroundSize: "52px 52px",
+          }}
+        />
 
-            <h1 className="hero-reveal hero-delay-3" style={styles.heroTitle}>
-              Rwanda's premium
-              <br />
-              <span style={{ color: '#F4A261' }}>Bus Ticketing Platform</span>
-            </h1>
-            <p className="hero-reveal hero-delay-3" style={styles.heroSubtitle}>
-              Book tickets instantly, track buses in real-time, and travel smarter across Rwanda.
-              Join 50,000+ passengers who book with confidence every day.
+        <Container className="relative">
+          <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
+            <div>
+              <Reveal>
+                <Eyebrow>Bus transport, run digitally</Eyebrow>
+              </Reveal>
+              <Reveal delay={80}>
+                <h1 className="st-font-display mt-5 text-[2.5rem] font-semibold leading-[1.08] tracking-[-0.02em] text-white sm:text-[3.4rem]">
+                  The operating system for
+                  <span className="bg-gradient-to-r from-[#7CC3E8] to-white bg-clip-text text-transparent">
+                    {" "}
+                    East Africa's bus networks
+                  </span>
+                </h1>
+              </Reveal>
+              <Reveal delay={140}>
+                <p className="mt-6 max-w-xl text-[1.125rem] leading-relaxed text-white/70">
+                  One platform for booking, fleet management, and live tracking
+                  — so passengers travel with confidence and operators run every
+                  route, driver, and shilling from a single dashboard.
+                </p>
+              </Reveal>
+              <Reveal delay={200}>
+                <div className="mt-9 flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={handleSignupClick}
+                    className="group flex items-center gap-2 rounded-full bg-white px-7 py-4 text-[0.9375rem] font-semibold text-[#0B1220] transition-transform duration-200 hover:-translate-y-0.5"
+                  >
+                    Start free
+                    <ArrowRight
+                      size={17}
+                      className="transition-transform duration-200 group-hover:translate-x-0.5"
+                    />
+                  </button>
+                  <button className="flex items-center gap-2 rounded-full border border-white/25 px-7 py-4 text-[0.9375rem] font-semibold text-white transition-colors duration-200 hover:bg-white/10">
+                    <PlayCircle size={18} />
+                    Watch demo
+                  </button>
+                </div>
+              </Reveal>
+            </div>
+
+            {/* Hero visual: stacked product mockups */}
+            <Reveal delay={120} className="relative">
+              <div className="relative mx-auto h-[420px] max-w-[440px] sm:h-[460px]">
+                {/* Dashboard card */}
+                <GlassPanel className="absolute left-0 top-0 w-[86%] p-5">
+                  <div className="flex items-center justify-between">
+                    <span className="st-font-mono text-[0.6875rem] uppercase tracking-wider text-white/50">
+                      Operator dashboard
+                    </span>
+                    <span className="flex items-center gap-1.5 rounded-full bg-[#16A34A]/15 px-2.5 py-1 text-[0.6875rem] font-medium text-[#16A34A]">
+                      <span className="st-live-dot h-1.5 w-1.5 rounded-full bg-[#16A34A]" />{" "}
+                      Live
+                    </span>
+                  </div>
+                  <div className="mt-4 st-font-mono text-[1.6rem] font-semibold text-white">
+                    KES 4.82M
+                  </div>
+                  <div className="text-[0.75rem] text-white/50">
+                    Revenue — today
+                  </div>
+                  <div className="mt-4 flex items-end gap-1.5">
+                    {[38, 52, 44, 68, 58, 74, 62, 82].map((h, i) => (
+                      <div
+                        key={i}
+                        className="w-full rounded-t-sm bg-gradient-to-t from-[#0077B6] to-[#7CC3E8]"
+                        style={{ height: `${h}px` }}
+                      />
+                    ))}
+                  </div>
+                </GlassPanel>
+
+                {/* Tracking map card */}
+                <GlassPanel className="absolute right-0 top-[38%] w-[74%] p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="st-font-mono text-[0.6875rem] uppercase tracking-wider text-white/50">
+                      NBO → MSA
+                    </span>
+                    <Navigation size={14} className="text-[#7CC3E8]" />
+                  </div>
+                  <div className="relative mt-3 h-24 overflow-hidden rounded-xl bg-[#0B2536]">
+                    <svg
+                      viewBox="0 0 200 100"
+                      className="absolute inset-0 h-full w-full"
+                    >
+                      <path
+                        d="M10 80 Q 70 20 100 50 T 190 20"
+                        fill="none"
+                        stroke="#7CC3E8"
+                        strokeOpacity="0.4"
+                        strokeWidth="2"
+                        strokeDasharray="4 5"
+                      />
+                      <circle cx="10" cy="80" r="3" fill="#ffffff" />
+                      <circle cx="190" cy="20" r="3" fill="#ffffff" />
+                      <circle
+                        cx="100"
+                        cy="50"
+                        r="5"
+                        fill="#0077B6"
+                        stroke="#fff"
+                        strokeWidth="1.5"
+                      />
+                    </svg>
+                  </div>
+                  <div className="mt-3 flex justify-between st-font-mono text-[0.75rem] text-white/70">
+                    <span>ETA 22 min</span>
+                    <span>82 km/h</span>
+                  </div>
+                </GlassPanel>
+
+                {/* Ticket card */}
+                <GlassPanel className="absolute bottom-0 left-[6%] w-[62%] p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="st-font-mono text-[0.6875rem] uppercase tracking-wider text-white/50">
+                      E-ticket
+                    </span>
+                    <QrCode size={16} className="text-white/70" />
+                  </div>
+                  <div className="mt-2 text-[0.9375rem] font-semibold text-white">
+                    Seat 14A · Equator Express
+                  </div>
+                  <div className="mt-1 st-font-mono text-[0.75rem] text-white/50">
+                    Nairobi → Mombasa · 07:40
+                  </div>
+                </GlassPanel>
+              </div>
+            </Reveal>
+          </div>
+
+          {/* Ticker */}
+          <Reveal delay={100} className="mt-16">
+            <RouteTicker />
+          </Reveal>
+
+          {/* Stats */}
+          <Reveal delay={140}>
+            <div className="mt-12 grid grid-cols-2 gap-8 border-t border-white/10 pt-10 sm:grid-cols-4">
+              <StatBlock value="100,000+" label="Tickets processed" />
+              <StatBlock value="50+" label="Bus companies" />
+              <StatBlock value="99.9%" label="Platform uptime" />
+              <StatBlock value="24/7" label="Live monitoring" />
+            </div>
+          </Reveal>
+        </Container>
+      </section>
+
+      {/* ============ FEATURES ============ */}
+      <section className="bg-white py-24 sm:py-28">
+        <Container>
+          <SectionHeading
+            eyebrow="Everything, one platform"
+            title="Built to run the whole operation"
+            subtitle="From the passenger's first search to the driver's last stop, every part of the trip lives in SafariTix."
+          />
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map((f, i) => (
+              <Reveal key={f.title} delay={i * 40}>
+                <FeatureCard
+                  icon={f.icon}
+                  title={f.title}
+                  description={f.description}
+                />
+              </Reveal>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* ============ LIVE TRACKING SHOWCASE ============ */}
+      <section className="relative overflow-hidden bg-[#071827] py-24 sm:py-28">
+        <GradientBlob className="left-[10%] top-[10%] h-[300px] w-[300px] bg-[#0077B6]/25" />
+        <Container className="relative grid items-center gap-14 lg:grid-cols-2">
+          <Reveal>
+            <Eyebrow>Live tracking</Eyebrow>
+            <h2 className="st-font-display mt-4 text-[2rem] font-semibold leading-tight text-white sm:text-[2.5rem]">
+              Every bus, visible in real time
+            </h2>
+            <p className="mt-4 max-w-md text-[1.0625rem] leading-relaxed text-white/70">
+              GPS updates stream from the driver's phone straight to the
+              passenger app and the operator dashboard — the same signal, three
+              views.
             </p>
+            <ul className="mt-8 space-y-4">
+              {[
+                {
+                  icon: Navigation,
+                  label: "ETA to next stop",
+                  value: "22 minutes",
+                },
+                {
+                  icon: RouteIcon,
+                  label: "Distance remaining",
+                  value: "38.4 km",
+                },
+                { icon: Gauge, label: "Current speed", value: "82 km/h" },
+                {
+                  icon: MapPin,
+                  label: "Passenger location",
+                  value: "Matched to nearest stage",
+                },
+              ].map((row) => (
+                <li
+                  key={row.label}
+                  className="flex items-center gap-3 text-white/85"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-[#7CC3E8]">
+                    {(() => {
+                      const Icon = row.icon;
+                      return <Icon size={17} />;
+                    })()}
+                  </span>
+                  <span className="text-sm text-white/60">{row.label}</span>
+                  <span className="st-font-mono ml-auto text-sm font-medium">
+                    {row.value}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
 
-            <div className="hero-cta-group hero-reveal hero-delay-4" style={styles.ctaButtons}>
+          <Reveal delay={100}>
+            <div className="relative rounded-[28px] border border-white/10 bg-[#0B2536] p-6">
+              <svg viewBox="0 0 400 260" className="h-[260px] w-full">
+                <path
+                  d="M20 220 C 90 60, 180 210, 260 120 S 380 40, 380 40"
+                  fill="none"
+                  stroke="#7CC3E8"
+                  strokeOpacity="0.35"
+                  strokeWidth="3"
+                  strokeDasharray="6 8"
+                />
+                <circle cx="20" cy="220" r="5" fill="#fff" />
+                <circle cx="380" cy="40" r="5" fill="#fff" />
+                <g>
+                  <circle
+                    cx="220"
+                    cy="150"
+                    r="9"
+                    fill="#0077B6"
+                    stroke="#fff"
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx="220"
+                    cy="150"
+                    r="16"
+                    fill="none"
+                    stroke="#0077B6"
+                    strokeOpacity="0.4"
+                    strokeWidth="2"
+                  />
+                </g>
+                <text
+                  x="30"
+                  y="240"
+                  fill="#ffffff80"
+                  fontSize="11"
+                  fontFamily="IBM Plex Mono, monospace"
+                >
+                  NAIROBI
+                </text>
+                <text
+                  x="322"
+                  y="30"
+                  fill="#ffffff80"
+                  fontSize="11"
+                  fontFamily="IBM Plex Mono, monospace"
+                >
+                  MOMBASA
+                </text>
+              </svg>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.04] px-4 py-3">
+                <div>
+                  <div className="text-[0.8125rem] font-medium text-white">
+                    Bus 07 · Equator Express
+                  </div>
+                  <div className="st-font-mono text-[0.75rem] text-white/50">
+                    Route NBO–MSA
+                  </div>
+                </div>
+                <span className="flex items-center gap-1.5 rounded-full bg-[#16A34A]/15 px-2.5 py-1 text-[0.75rem] font-medium text-[#16A34A]">
+                  <span className="st-live-dot h-1.5 w-1.5 rounded-full bg-[#16A34A]" />{" "}
+                  On time
+                </span>
+              </div>
+            </div>
+          </Reveal>
+        </Container>
+      </section>
+
+      {/* ============ WHY SAFARITIX (with audience tabs) ============ */}
+      <section className="bg-[#F6FAFC] py-24 sm:py-28">
+        <Container>
+          <SectionHeading
+            eyebrow="Why it matters"
+            title="Fewer problems, better numbers"
+            subtitle="Not a feature list — the outcomes operators and passengers actually notice."
+          />
+          <div className="mb-10 flex justify-center gap-2">
+            {(["passengers", "companies"] as const).map((a) => (
               <button
-                onClick={handleSignupClick}
-                style={styles.primaryCTA}
-                className="hero-cta"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 18px 36px rgba(0, 119, 182, 0.32)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = '0 14px 28px rgba(0, 119, 182, 0.28)';
-                }}
+                key={a}
+                onClick={() => setAudience(a)}
+                className={`rounded-full px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
+                  audience === a
+                    ? "bg-[#0077B6] text-white"
+                    : "bg-white text-[#5B6B78] border border-[#DCE8F0]"
+                }`}
               >
-                Book Ticket Now
-                <ArrowRight size={20} />
+                {a === "passengers" ? "For passengers" : "For operators"}
               </button>
-              <button
-                onClick={handleLoginClick}
-                style={styles.secondaryCTA}
-                className="hero-cta"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.14)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.36)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.22)';
-                }}
-              >
-                <Bus size={18} />
-                Track Bus
-              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {(audience === "passengers"
+              ? whyRows.slice(0, 3).concat(whyRows[4])
+              : whyRows
+            ).map((row, i) => (
+              <Reveal key={row.title} delay={i * 40}>
+                <div className="rounded-[20px] bg-white p-7">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[#E6F4FB] text-[#0077B6]">
+                    {(() => {
+                      const Icon = row.icon;
+                      return <Icon size={20} />;
+                    })()}
+                  </div>
+                  <h3 className="st-font-display mt-5 text-[1.05rem] font-semibold text-[#0B1220]">
+                    {row.title}
+                  </h3>
+                  <p className="mt-2 text-[0.9375rem] leading-relaxed text-[#5B6B78]">
+                    {row.description}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* ============ PASSENGER JOURNEY ============ */}
+      <section className="bg-white py-24 sm:py-28">
+        <Container>
+          <SectionHeading
+            eyebrow="Passenger journey"
+            title="From search to seat, in one flow"
+          />
+          <div className="relative mt-4">
+            <div className="absolute left-0 right-0 top-[26px] hidden h-px border-t border-dashed border-[#DCE8F0] lg:block" />
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-7 lg:gap-4">
+              {journeySteps.map((step, i) => (
+                <Reveal key={step.title} delay={i * 60}>
+                  <div className="relative">
+                    <div className="relative z-10 flex h-[52px] w-[52px] items-center justify-center rounded-full border-2 border-[#0077B6] bg-white st-font-mono text-sm font-semibold text-[#0077B6]">
+                      {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <h3 className="st-font-display mt-4 text-[0.9375rem] font-semibold text-[#0B1220]">
+                      {step.title}
+                    </h3>
+                    <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-[#5B6B78]">
+                      {step.description}
+                    </p>
+                  </div>
+                </Reveal>
+              ))}
             </div>
           </div>
+        </Container>
+      </section>
 
-          <div className="hero-illustration" style={styles.heroIllustration}>
-            <div style={styles.heroIllustrationLabel}>Live Fleet</div>
-            <Bus size={42} strokeWidth={1.8} />
-            <div style={{ fontSize: '0.95rem', fontWeight: 800 }}>Real-time tracking</div>
-          </div>
+      {/* ============ DRIVER EXPERIENCE ============ */}
+      <section className="bg-[#F6FAFC] py-24 sm:py-28">
+        <Container className="grid items-center gap-14 lg:grid-cols-2">
+          <Reveal>
+            <Eyebrow>Driver app</Eyebrow>
+            <h2 className="st-font-display mt-4 text-[2rem] font-semibold leading-tight text-[#0B1220] sm:text-[2.5rem]">
+              Everything a driver needs, one phone
+            </h2>
+            <div className="mt-8 space-y-5">
+              {driverSteps.map((step, i) => (
+                <div key={step.title} className="flex gap-4">
+                  <span className="st-font-mono flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0077B6]/10 text-[0.8125rem] font-semibold text-[#0077B6]">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <div className="font-semibold text-[#0B1220]">
+                      {step.title}
+                    </div>
+                    <div className="text-sm text-[#5B6B78]">
+                      {step.description}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Reveal>
 
-          <div className="hero-stats" style={styles.statsBar}>
-            {stats.map((stat, idx) => (
-              <div key={idx} style={styles.statItem}>
-                <div style={styles.statValue}>{stat.value}</div>
-                <div style={styles.statLabel}>{stat.label}</div>
+          <Reveal delay={100} className="flex justify-center">
+            <div className="relative h-[440px] w-[220px] rounded-[36px] border-8 border-[#0B1220] bg-[#0B1220] shadow-[0_30px_60px_rgba(11,18,32,0.25)]">
+              <div className="flex h-full w-full flex-col overflow-hidden rounded-[28px] bg-[#071827] p-4">
+                <div className="st-font-mono text-[0.6875rem] text-white/40">
+                  Trip · NBO–MSA
+                </div>
+                <div className="mt-2 flex items-center gap-2 rounded-xl bg-[#16A34A]/15 px-3 py-2 text-[0.75rem] font-medium text-[#16A34A]">
+                  <span className="st-live-dot h-1.5 w-1.5 rounded-full bg-[#16A34A]" />{" "}
+                  Sharing GPS
+                </div>
+                <div className="mt-4 flex-1 rounded-2xl bg-[#0B2536]" />
+                <button className="mt-4 rounded-xl bg-[#0077B6] py-3 text-center text-sm font-semibold text-white">
+                  Update status
+                </button>
               </div>
+            </div>
+          </Reveal>
+        </Container>
+      </section>
+
+      {/* ============ TESTIMONIALS ============ */}
+      <section className="bg-white py-24 sm:py-28">
+        <Container>
+          <SectionHeading
+            eyebrow="Trusted across the region"
+            title="What people say about riding — and running — on SafariTix"
+          />
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {testimonials.map((t, i) => (
+              <Reveal key={t.name} delay={i * 60}>
+                <TestimonialCard
+                  quote={t.quote}
+                  name={t.name}
+                  role={t.role}
+                  initials={t.initials}
+                />
+              </Reveal>
             ))}
           </div>
-        </div>
+        </Container>
       </section>
 
-      {/* Core Services Section */}
-      <section style={{ ...styles.sectionPadding, ...styles.servicesSection }}>
-        <div style={styles.container}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>Everything You Need in One Platform</h2>
-            <p style={styles.sectionSubtitle}>
-              SafariTix brings convenience, reliability, and modern technology to bus travel in Rwanda
-            </p>
+      {/* ============ PRICING ============ */}
+      <section className="bg-[#F6FAFC] py-24 sm:py-28">
+        <Container>
+          <SectionHeading
+            eyebrow="Pricing"
+            title="Plans that scale with your fleet"
+            subtitle="Start free. Move up as routes and buses grow."
+          />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <PricingCard
+              name="Starter"
+              price="Free"
+              cadence=""
+              description="For a single route or a small operator getting started."
+              features={[
+                "Up to 3 active buses",
+                "Online booking & e-tickets",
+                "Basic live tracking",
+                "Email support",
+              ]}
+              cta="Start free"
+              onClick={handleSignupClick}
+            />
+            <PricingCard
+              name="Growth"
+              price="$79"
+              cadence="/ month"
+              description="For operators running multiple routes and drivers daily."
+              features={[
+                "Up to 25 active buses",
+                "Full fleet & route management",
+                "Revenue analytics dashboard",
+                "Priority support",
+              ]}
+              featured
+              cta="Start free trial"
+              onClick={handleSignupClick}
+            />
+            <PricingCard
+              name="Enterprise"
+              price="Custom"
+              cadence=""
+              description="For large networks and government-regulated fleets."
+              features={[
+                "Unlimited buses & routes",
+                "Regulatory reporting access",
+                "Dedicated onboarding",
+                "SLA-backed support",
+              ]}
+              cta="Talk to sales"
+              onClick={handleLoginClick}
+            />
           </div>
-
-          <div style={styles.servicesGrid}>
-            {coreServices.map((service, idx) => {
-              const Icon = service.icon;
-              return (
-                <div
-                  key={idx}
-                  style={styles.serviceCard}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-8px)';
-                    e.currentTarget.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.12)';
-                    e.currentTarget.style.borderColor = service.color;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.08)';
-                    e.currentTarget.style.borderColor = 'transparent';
-                  }}
-                >
-                  <div style={{ ...styles.serviceIconWrapper, background: `${service.color}15` }}>
-                    <Icon size={36} color={service.color} />
-                  </div>
-                  <h3 style={styles.serviceTitle}>{service.title}</h3>
-                  <p style={styles.serviceDescription}>{service.description}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        </Container>
       </section>
 
-      {/* Benefits Section */}
-      <section style={{ ...styles.sectionPadding, ...styles.benefitsSection }}>
-        <div style={styles.container}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>Why Choose SafariTix?</h2>
-            <p style={styles.sectionSubtitle}>
-              Built for commuters and bus companies with features that matter
-            </p>
-          </div>
-
-          {/* Tabs */}
-          <div style={styles.benefitsTabs}>
-            <button
-              style={{
-                ...styles.tabButton,
-                ...(activeTab === 'commuters' ? styles.tabButtonActive : {}),
-              }}
-              onClick={() => setActiveTab('commuters')}
-            >
-              For Passengers
-            </button>
-            <button
-              style={{
-                ...styles.tabButton,
-                ...(activeTab === 'companies' ? styles.tabButtonActive : {}),
-              }}
-              onClick={() => setActiveTab('companies')}
-            >
-              For Bus Companies
-            </button>
-          </div>
-
-          {/* Benefits Grid */}
-          <div style={styles.benefitsGrid}>
-            {(activeTab === 'commuters' ? commuterBenefits : companyBenefits).map((benefit, idx) => {
-              const Icon = benefit.icon;
-              return (
-                <div
-                  key={idx}
-                  style={styles.benefitCard}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#FFFFFF';
-                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.1)';
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#F5F7FA';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <div style={styles.benefitIcon}>
-                    <Icon size={28} color="#0077B6" />
-                  </div>
-                  <h3 style={styles.benefitTitle}>{benefit.title}</h3>
-                  <p style={styles.benefitDescription}>{benefit.description}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works Section */}
-      <section style={{ ...styles.sectionPadding, ...styles.howItWorksSection }}>
-        <div style={styles.container}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>How SafariTix Works</h2>
-            <p style={styles.sectionSubtitle}>
-              Book your ticket in 4 simple steps – it takes less than 2 minutes
-            </p>
-          </div>
-
-          <div style={styles.stepsGrid}>
-            {howItWorks.map((step, idx) => {
-              const Icon = step.icon;
-              return (
-                <div key={idx} style={styles.stepCard}>
-                  <div style={styles.stepNumber}>{step.step}</div>
-                  <div style={styles.stepIcon}>
-                    <Icon size={48} />
-                  </div>
-                  <h3 style={styles.stepTitle}>{step.title}</h3>
-                  <p style={styles.stepDescription}>{step.description}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials Section */}
-      <section style={{ ...styles.sectionPadding, ...styles.testimonialsSection }}>
-        <div style={styles.container}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>Trusted by Thousands Across Rwanda</h2>
-            <p style={styles.sectionSubtitle}>
-              See what our users say about their SafariTix experience
-            </p>
-          </div>
-
-          <div style={styles.testimonialsGrid}>
-            {testimonials.map((testimonial, idx) => (
-              <div key={idx} style={styles.testimonialCard}>
-                <Quote style={styles.quoteIcon} />
-                <div style={styles.testimonialHeader}>
-                  <div style={styles.avatar}>{testimonial.avatar}</div>
-                  <div style={styles.testimonialInfo}>
-                    <div style={styles.testimonialName}>{testimonial.name}</div>
-                    <div style={styles.testimonialRole}>{testimonial.role}</div>
-                  </div>
-                </div>
-                <div style={styles.stars}>
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <Star key={i} size={18} fill="#F4A261" color="#F4A261" />
-                  ))}
-                </div>
-                <p style={styles.testimonialComment}>"{testimonial.comment}"</p>
-                {testimonial.verified && (
-                  <div style={styles.verifiedBadge}>
-                    <CheckCircle size={14} />
-                    Verified Passenger
-                  </div>
-                )}
-              </div>
+      {/* ============ FAQ ============ */}
+      <section className="bg-white py-24 sm:py-28">
+        <Container className="max-w-3xl">
+          <SectionHeading eyebrow="FAQ" title="Common questions" align="left" />
+          <div>
+            {faqs.map((f) => (
+              <FaqItem key={f.q} question={f.q} answer={f.a} />
             ))}
           </div>
-        </div>
+        </Container>
       </section>
 
-      {/* CTA Banner */}
-      <section style={styles.ctaBannerSection}>
-        <div style={styles.container}>
-          <h2 style={styles.ctaBannerTitle}>Ready to Travel Smarter?</h2>
-          <p style={styles.ctaBannerSubtitle}>
-            Join thousands of passengers booking with SafariTix every day. Your next journey is just a tap away.
+      {/* ============ FINAL CTA ============ */}
+      <section className="relative overflow-hidden bg-[#071827] py-24">
+        <GradientBlob className="left-1/2 top-0 h-[360px] w-[360px] -translate-x-1/2 bg-[#0077B6]/30" />
+        <Container className="relative text-center">
+          <h2 className="st-font-display mx-auto max-w-2xl text-[2.25rem] font-semibold leading-tight text-white sm:text-[3rem]">
+            Ready to modernize your transport business?
+          </h2>
+          <p className="mx-auto mt-4 max-w-lg text-[1.0625rem] text-white/70">
+            Set up your first route in minutes — no hardware, no long contracts.
           </p>
-          <div style={styles.ctaBannerButtons}>
+          <div className="mt-9 flex flex-wrap justify-center gap-4">
             <button
               onClick={handleSignupClick}
-              style={{
-                ...styles.primaryCTA,
-                background: '#F4A261',
-                fontSize: '1.25rem',
-                padding: '20px 48px',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 16px 32px rgba(244, 162, 97, 0.6)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(244, 162, 97, 0.4)';
-              }}
+              className="flex items-center gap-2 rounded-full bg-white px-7 py-4 text-[0.9375rem] font-semibold text-[#0B1220] transition-transform duration-200 hover:-translate-y-0.5"
             >
-              Create Free Account
-              <ArrowRight size={24} />
+              Start free <ArrowRight size={17} />
+            </button>
+            <button
+              onClick={handleLoginClick}
+              className="flex items-center gap-2 rounded-full border border-white/25 px-7 py-4 text-[0.9375rem] font-semibold text-white transition-colors duration-200 hover:bg-white/10"
+            >
+              Book a demo <ArrowUpRight size={17} />
             </button>
           </div>
-        </div>
+        </Container>
       </section>
 
-      {/* App Download Section */}
-      <section style={styles.appBadgesSection}>
-        <div style={styles.container}>
-          <h3 style={styles.appBadgesTitle}>Download the SafariTix Mobile App</h3>
-          <div style={styles.appBadges}>
-            {/* Apple App Store Badge */}
-            <div
-              style={styles.appBadge}
-              onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-4px)')}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-            >
-              <svg style={styles.appStoreIcon} viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-              </svg>
-              <div style={{ textAlign: 'left' }}>
-                <div style={styles.badgeSubText}>Download on the</div>
-                <div style={styles.badgeMainText}>App Store</div>
+      {/* ============ FOOTER ============ */}
+      <footer className="bg-[#0B1220] py-16 text-white">
+        <Container>
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="col-span-2">
+              <div className="st-font-display flex items-center gap-2 text-lg font-semibold">
+                <Bus size={20} className="text-[#7CC3E8]" /> SafariTix
               </div>
-            </div>
-
-            {/* Google Play Badge */}
-            <div
-              style={styles.appBadge}
-              onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-4px)')}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-            >
-              <svg style={styles.appStoreIcon} viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 20.5v-17c0-.6.4-1.1 1-1.1.2 0 .4.1.6.2l14.8 8.5c.5.3.7.9.4 1.4-.1.2-.3.4-.5.5L4.5 21.5c-.5.3-1.1.1-1.4-.4-.1-.2-.1-.4-.1-.6zm2-1.8l9.6-5.5L5 8.1v10.6zm0-12.7l9.6 5.5 2.1-1.2L5 4.8v1.2z"/>
-              </svg>
-              <div style={{ textAlign: 'left' }}>
-                <div style={styles.badgeSubText}>GET IT ON</div>
-                <div style={styles.badgeMainText}>Google Play</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer Section */}
-      <footer style={styles.footer}>
-        <div style={styles.container}>
-          <div style={styles.footerGrid}>
-            <div style={styles.footerBrand}>
-              <div style={styles.footerLogo}>
-              </div>
-              <p style={styles.footerDescription}>
-                Transforming bus travel in Rwanda. SafariTix provides a fast, secure, and reliable way to book tickets and manage your journey.
+              <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/55">
+                The operating system for East Africa's bus networks — booking,
+                fleet management, and live tracking in one platform.
               </p>
-              <div style={styles.socialIcons}>
-                <div style={styles.socialIcon}><Facebook size={20} /></div>
-                <div style={styles.socialIcon}><Twitter size={20} /></div>
-                <div style={styles.socialIcon}><Instagram size={20} /></div>
-                <div style={styles.socialIcon}><Linkedin size={20} /></div>
+              <div className="mt-6 flex gap-3">
+                {[Facebook, Twitter, Instagram, Linkedin].map((Icon, i) => (
+                  <span
+                    key={i}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10"
+                  >
+                    <Icon size={16} />
+                  </span>
+                ))}
               </div>
             </div>
-
-            <div>
-              <h4 style={styles.footerTitle}>Quick Links</h4>
-              <ul style={styles.footerLinks}>
-              <li><Link to="/about" style={styles.footerLink}>About Us</Link></li>
-              <li><Link to="/routes" style={styles.footerLink}>Popular Routes</Link></li>
-              <li><Link to="/operators" style={styles.footerLink}>Bus Operators</Link></li>
-              <li><Link to="/careers" style={styles.footerLink}>Careers</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 style={styles.footerTitle}>Support</h4>
-              <ul style={styles.footerLinks}>
-              <li><Link to="/help-center" style={styles.footerLink}>Help Center</Link></li>
-              <li><Link to="/faqs" style={styles.footerLink}>FAQs</Link></li>
-              <li><Link to="/contact" style={styles.footerLink}>Contact Us</Link></li>
-              <li><Link to="/cancellation-policy" style={styles.footerLink}>Cancellation Policy</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 style={styles.footerTitle}>Legal</h4>
-              <ul style={styles.footerLinks}>
-              <li><Link to="/terms" style={styles.footerLink}>Terms of Service</Link></li>
-              <li><Link to="/privacy" style={styles.footerLink}>Privacy Policy</Link></li>
-              <li><Link to="/cookies" style={styles.footerLink}>Cookie Policy</Link></li>
-              <li><Link to="/accessibility" style={styles.footerLink}>Accessibility</Link></li>
-              </ul>
-            </div>
+            {[
+              {
+                title: "Product",
+                links: [
+                  "Booking",
+                  "Fleet management",
+                  "Live tracking",
+                  "Driver app",
+                ],
+              },
+              { title: "Company", links: ["About", "Careers", "Press"] },
+              {
+                title: "Resources",
+                links: ["Help center", "API docs", "Status"],
+              },
+              { title: "Legal", links: ["Privacy", "Terms"] },
+            ].map((col) => (
+              <div key={col.title}>
+                <div className="st-font-mono text-[0.75rem] font-semibold uppercase tracking-wider text-white/40">
+                  {col.title}
+                </div>
+                <ul className="mt-4 space-y-2.5">
+                  {col.links.map((l) => (
+                    <li key={l}>
+                      <Link
+                        to="#"
+                        className="text-sm text-white/65 transition-colors hover:text-white"
+                      >
+                        {l}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-
-          <div style={styles.footerBottom}>
-            <div style={styles.footerBottomContent}>
-              <div style={styles.copyright}>
-                © {new Date().getFullYear()} SafariTix. All rights reserved.
-              </div>
-              <div style={styles.footerBottomLinks}>
-                <span style={styles.copyright}>Made with ❤️ in Rwanda</span>
-              </div>
-            </div>
+          <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
+            <span className="text-[0.8125rem] text-white/40">
+              © {new Date().getFullYear()} SafariTix. All rights reserved.
+            </span>
+            <span className="flex items-center gap-1.5 text-[0.8125rem] text-white/40">
+              <Building2 size={13} /> Built for East Africa's transport
+              operators
+            </span>
           </div>
-        </div>
+        </Container>
       </footer>
     </div>
   );
