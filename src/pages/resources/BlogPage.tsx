@@ -1,8 +1,7 @@
 import React from 'react';
 import { Newspaper, PenSquare, TrendingUp, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Header } from '../public/header';
-
+import Header from "../header/Header";
 const sections = [
   {
     title: 'Product stories that matter',

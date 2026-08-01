@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 
 // NOTE: adjust this import to match where your existing Header component lives.
-import { Header } from "./header";
+import Header from "../header/Header";
 import {
   Container,
   Reveal,

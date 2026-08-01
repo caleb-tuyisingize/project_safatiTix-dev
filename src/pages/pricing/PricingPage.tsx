@@ -1,7 +1,7 @@
 import React from 'react';
 import { BusFront, Building2, BadgeDollarSign, Route, WalletCards, ChartColumnIncreasing } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Header } from '../public/header';
+import Header from "../header/Header";
 
 const commuterSteps = [
   {

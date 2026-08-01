@@ -1,8 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Calendar, TrendingUp, Users, CreditCard } from 'lucide-react';
-import { Header } from '../public/header';
-
+import Header from "../header/Header";
 const benefits = [
   {
     title: 'Digital operations',

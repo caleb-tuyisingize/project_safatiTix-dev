@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, MapPin, Navigation2, Radar, Route } from 'lucide-react';
-import { Header } from '../public/header';
+import Header from "../header/Header";
 
 const highlights = [
   {
