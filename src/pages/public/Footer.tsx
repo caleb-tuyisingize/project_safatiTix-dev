@@ -1,123 +1,90 @@
-import React, { CSSProperties } from 'react';
-import { Bus } from 'lucide-react';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import BrandLogo from '../../components/BrandLogo';
 
-const Footer = () => {
-  const styles: Record<string, CSSProperties> = {
-    footer: {
-      padding: '48px 16px',
-      background: '#2B2D42',
-      color: 'white',
-    },
-    container: {
-      maxWidth: '1280px',
-      margin: '0 auto',
-    },
-    footerGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-      gap: '32px',
-      marginBottom: '32px',
-    },
-    footerTitle: {
-      fontWeight: 'bold',
-      fontFamily: 'Montserrat, sans-serif',
-      marginBottom: '16px',
-    },
-    footerLinks: {
-      listStyle: 'none',
-      padding: 0,
-      margin: 0,
-    },
-    footerLink: {
-      color: 'rgba(255, 255, 255, 0.7)',
-      textDecoration: 'none',
-      display: 'block',
-      padding: '8px 0',
-      fontSize: '0.875rem',
-      transition: 'color 0.2s',
-      cursor: 'pointer',
-    },
-    footerBottom: {
-      borderTop: '1px solid rgba(255, 255, 255, 0.2)',
-      paddingTop: '32px',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      flexWrap: 'wrap' as const,
-      gap: '16px',
-    },
-    copyright: {
-      color: 'rgba(255, 255, 255, 0.7)',
-      fontSize: '0.875rem',
-    },
-    footerBottomLinks: {
-      display: 'flex',
-      gap: '16px',
-    },
-    logo: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px',
-      marginBottom: '16px',
-    },
-    logoText: {
-      fontSize: '1.25rem',
-      fontWeight: 'bold',
-      color: 'white',
-      fontFamily: 'Montserrat, sans-serif',
-    },
-  };
+type FooterLink = {
+  label: string;
+  to: string;
+};
 
+const companyLinks: FooterLink[] = [
+  { label: 'About Us', to: '/about' },
+  { label: 'Popular Routes', to: '/routes' },
+  { label: 'Bus Operators', to: '/operators' },
+  { label: 'Careers', to: '/careers' },
+];
+
+const supportLinks: FooterLink[] = [
+  { label: 'Help Center', to: '/help-center' },
+  { label: 'FAQs', to: '/faqs' },
+  { label: 'Contact Us', to: '/contact' },
+  { label: 'Cancellation Policy', to: '/cancellation-policy' },
+];
+
+const legalLinks: FooterLink[] = [
+  { label: 'Terms of Service', to: '/terms' },
+  { label: 'Privacy Policy', to: '/privacy' },
+  { label: 'Cookie Policy', to: '/cookies' },
+  { label: 'Accessibility', to: '/accessibility' },
+];
+
+const Footer: React.FC = () => {
   return (
-    <footer style={styles.footer}>
-      <div style={styles.container}>
-        <div style={styles.footerGrid}>
-          {/* Brand */}
+    <footer className="border-t border-slate-800 bg-slate-950 text-white">
+      <div className="mx-auto max-w-7xl px-6 py-14 lg:px-10">
+        <div className="grid gap-10 md:grid-cols-2 xl:grid-cols-4">
           <div>
-            <div style={styles.logo}>
-              <Bus style={{ width: '32px', height: '32px', color: '#0077B6' }} />
-              <span style={styles.logoText}>SafariTix</span>
-            </div>
-            <p style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.875rem' }}>
-              Modern bus ticketing, tracking and subscriptions across Rwanda.
+            <Link to="/" className="inline-flex">
+              <BrandLogo imageWidth={176} imageHeight={58} style={{ marginBottom: '16px' }} />
+            </Link>
+            <p className="max-w-sm text-sm leading-6 text-white/70">
+              Modern bus ticketing, tracking, and subscriptions across Rwanda.
             </p>
           </div>
 
-          {/* Quick Links */}
           <div>
-            <h4 style={styles.footerTitle}>Quick Links</h4>
-            <ul style={styles.footerLinks}>
-              <li><a href="/" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Home</a></li>
-              <li><a href="#features" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Features</a></li>
-              <li><a href="#pricing" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Pricing</a></li>
-              <li><a href="#support" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Support</a></li>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-[#F4A261]">Company</h4>
+            <ul className="space-y-2">
+              {companyLinks.map((link) => (
+                <li key={link.to}>
+                  <Link className="text-sm text-white/70 transition hover:text-[#F4A261]" to={link.to}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* For Business */}
           <div>
-            <h4 style={styles.footerTitle}>For Business</h4>
-            <ul style={styles.footerLinks}>
-              <li><a href="/app/signup" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Company Signup</a></li>
-              <li><a href="/dashboard/driver" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Driver Portal</a></li>
-              <li><a href="#api" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>API</a></li>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-[#F4A261]">Support</h4>
+            <ul className="space-y-2">
+              {supportLinks.map((link) => (
+                <li key={link.to}>
+                  <Link className="text-sm text-white/70 transition hover:text-[#F4A261]" to={link.to}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* Contact */}
           <div>
-            <h4 style={styles.footerTitle}>Contact</h4>
-            <p style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.875rem', margin: '8px 0' }}>info@safaritix.rw</p>
-            <p style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.875rem', margin: '8px 0' }}>+250 793 216 602</p>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-[#F4A261]">Legal</h4>
+            <ul className="space-y-2">
+              {legalLinks.map((link) => (
+                <li key={link.to}>
+                  <Link className="text-sm text-white/70 transition hover:text-[#F4A261]" to={link.to}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        <div style={styles.footerBottom}>
-          <p style={styles.copyright}>© 2026 SafariTix. All rights reserved.</p>
-          <div style={styles.footerBottomLinks}>
-            <a href="#privacy" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Privacy Policy</a>
-            <a href="#terms" style={styles.footerLink} onMouseEnter={(e) => e.currentTarget.style.color = '#F4A261'} onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}>Terms of Service</a>
-          </div>
+        <div className="mt-10 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-white/65">© {new Date().getFullYear()} SafariTix. All rights reserved.</p>
+          <p className="text-sm text-white/65">info@safaritix.rw · +250 793 216 602</p>
         </div>
       </div>
     </footer>

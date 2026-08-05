@@ -62,7 +62,7 @@
         overlay: false,
       },
       proxy: {
-        // Proxy API requests during development to the LOCAL backend server
+        // Proxy API requests during development to the local backend
         '/api': {
           target: 'http://localhost:5000',
           changeOrigin: true,

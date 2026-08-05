@@ -1,7 +1,29 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { supabase } from '../utils/supabase-client';
 import type { PlanPermissions, SubscriptionPlan } from '../utils/subscriptionPlans';
 
-type User = { id?: string; name?: string; email?: string; phone?: string | null; companyId?: string; companyName?: string; role?: string; homePath?: string; avatar_url?: string | null; profile_image?: string | null; emailVerified?: boolean; companyVerified?: boolean; accountStatus?: string; subscriptionPlan?: SubscriptionPlan; planPermissions?: PlanPermissions } | null;
+type User = { id?: string; name?: string; email?: string; phone?: string | null; companyId?: string; companyName?: string; role?: string; homePath?: string; avatar_url?: string | null; profile_image?: string | null; emailVerified?: boolean; companyVerified?: boolean; accountStatus?: string; subscriptionPlan?: SubscriptionPlan; planPermissions?: PlanPermissions; supabase_user_id?: supabase_user_id} | null;
+
+const DEFAULT_SUPABASE_ROLE = 'commuter';
+
+function mapSupabaseUser(sessionUser: SupabaseUser): Exclude<User, null> {
+  const metadata = sessionUser.user_metadata || {};
+  const role = metadata.role || sessionUser.app_metadata?.role || DEFAULT_SUPABASE_ROLE;
+  const homePath = metadata.homePath || metadata.home_path || sessionUser.app_metadata?.homePath || sessionUser.app_metadata?.home_path;
+
+  return {
+    id: sessionUser.id,
+    name: metadata.full_name || metadata.name || metadata.display_name || sessionUser.email || '',
+    email: sessionUser.email || undefined,
+    phone: metadata.phone || null,
+    role,
+    homePath,
+    avatar_url: metadata.avatar_url || metadata.picture || null,
+    profile_image: metadata.profile_image || metadata.picture || null,
+    emailVerified: Boolean(sessionUser.email_confirmed_at),
+  };
+}
 
 interface AuthContextValue {
   user: User;
@@ -25,59 +47,88 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const token = localStorage.getItem('token');
       const stored = localStorage.getItem('user');
 
-      if (!token || !stored) {
-        if (mounted) {
-          setUser(null);
-          setAccessToken(undefined);
-          setLoading(false);
+      if (token && stored) {
+        try {
+          // Attempt server verification if endpoint exists
+          const res = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.ok) {
+            const json = await res.json();
+            if (mounted) {
+              setUser(json.user || JSON.parse(stored));
+              setAccessToken(token);
+              setLoading(false);
+            }
+            return;
+          }
+
+          if (res.status === 401 || res.status === 403) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
+        } catch (e) {
+          // ignore and fall back to the stored user or Supabase session
         }
-        return;
+
+        if (mounted) {
+          try {
+            setUser(JSON.parse(stored));
+            setAccessToken(token);
+            setLoading(false);
+            return;
+          } catch (e) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
+        }
       }
 
       try {
-        // Attempt server verification if endpoint exists
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { data } = await supabase.auth.getSession();
+        const session = data.session;
 
-        if (res.ok) {
-          const json = await res.json();
-          if (mounted) {
-            setUser(json.user || JSON.parse(stored));
-            setAccessToken(token);
-            setLoading(false);
-          }
-          return;
-        }
-
-        if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          if (mounted) {
-            setUser(null);
-            setAccessToken(undefined);
-            setLoading(false);
-          }
+        if (session?.user && mounted) {
+          setUser(mapSupabaseUser(session.user));
+          setAccessToken(session.access_token);
+          setLoading(false);
           return;
         }
       } catch (e) {
-        // ignore and fall back to stored user
+        console.error('Failed to restore Supabase session:', e);
       }
 
       if (mounted) {
-        try {
-          setUser(JSON.parse(stored));
-          setAccessToken(token);
-        } catch (e) {
-          setUser(null);
-          setAccessToken(undefined);
-        }
+        setUser(null);
+        setAccessToken(undefined);
         setLoading(false);
       }
     };
 
     init();
-    return () => { mounted = false; };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const hasCustomAuth = Boolean(localStorage.getItem('token') && localStorage.getItem('user'));
+      if (!mounted || hasCustomAuth) {
+        return;
+      }
+
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+        setAccessToken(session.access_token);
+        setLoading(false);
+        return;
+      }
+
+      setUser(null);
+      setAccessToken(undefined);
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (token: string, u: User) => {
@@ -92,6 +143,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signOut = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    void supabase.auth.signOut().catch(() => {});
     setAccessToken(undefined);
     setUser(null);
   };

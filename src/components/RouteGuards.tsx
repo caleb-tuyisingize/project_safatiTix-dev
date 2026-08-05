@@ -14,7 +14,7 @@ export function getHomePath(user: { role?: string; homePath?: string } | null): 
     case 'admin':
       return '/dashboard/admin';
     case 'commuter':
-      return '/commuter/dashboard';
+      return '/dashboard/commuter';
     default:
       return '/';
   }
@@ -64,4 +64,22 @@ export function RedirectByRole({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+export function DashboardIndexRedirect() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center">
+        <div className="text-sm text-muted-foreground">Loadingâ€¦</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Navigate to={getHomePath(user)} replace />;
 }
